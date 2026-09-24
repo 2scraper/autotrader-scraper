@@ -1,0 +1,62 @@
+name: Site changed / API broke
+description: autotrader.com changed its pages and the parser no longer matches.
+labels: ["site-change"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most common way a scraper stops working, and it is worth
+        its own report because the fix is different from a code bug:
+        something on autotrader.com moved.
+
+        Useful to know before filing: this repo reads no markup. Every row
+        comes from the page's own Next.js store (`__NEXT_DATA__`, under
+        `props.pageProps.__eggsState`), so a break is almost always a renamed
+        field, a moved slice (`srp_results`, `inventory`, `owners`), or the
+        store no longer being server-rendered.
+
+  - type: dropdown
+    id: what_broke
+    attributes:
+      label: What stopped matching
+      options:
+        - 0 rows on a search that visibly has results on the site
+        - A warning that a core column is missing on most of a page
+        - A specific column is null or wrong on every row
+        - Every run is blocked, even headful through a US residential exit
+        - Pagination stops early or repeats rows
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: query
+    attributes:
+      label: Mode and query
+      description: The mode and flags (or --url), and what kind of exit you used.
+      placeholder: "--url https://www.autotrader.com/cars-for-sale/all-cars/toyota/camry/new-york-ny (exit: US residential, headful)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: |
+        Whichever of these you can get. A capture beats a description.
+
+        - The page as the parser saw it: re-run with `--dump-html page.html`.
+          Do NOT attach it whole: it carries the address that fetched it
+          (`clientIp`). Paste the one inventory record that is wrong.
+        - For a column problem: the value you got, and the value the site shows.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: >-
+        Whether it reproduces on a second engine, whether it reproduces from a
+        different country, and when it last worked.

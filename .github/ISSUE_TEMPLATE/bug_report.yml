@@ -1,0 +1,124 @@
+name: Bug report
+description: The scraper ran but the result was wrong, empty, or it crashed.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before anything else: never paste an API key, a proxy password or a
+        full `ws://user:pass@...` endpoint into a public issue.** The scrapers
+        mask credentials in their own logs, but raw HTML dumps and the Scraper
+        API's `x-debug` header do not. Replace them with `***`.
+
+        A few things answer most reports faster than we can:
+
+        - **Exit 3 with `blocked_akamai-unavailable`?** The site served its
+          "page unavailable" page. Measured 2026-09-24 it does that unless
+          the run has BOTH a US residential exit and a headful browser.
+          Headless Chromium and datacentre addresses were refused. See
+          [TROUBLESHOOTING.md](../blob/main/TROUBLESHOOTING.md).
+        - **Exit 2 saying the site WIDENED the search?** A make or model slug
+          the site does not know is silently dropped (`f-150` became every
+          Ford). Use the slug from the site's own URL (`f150`).
+        - **Exit 4, zero rows?** The search may genuinely match nothing: the
+          site's own count said 0. That is a correct answer.
+        - **Only 300 cars from a search that matched thousands?** The site
+          serves 300 results of any one search. The sidecar says so
+          (`capped_by_site`). Split the search to reach more.
+
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Which engine
+      options:
+        - playwright_scraper.py
+        - puppeteer_scraper.py
+        - selenium_scraper.py
+        - scraper_api_client.py
+        - fingerprint_client.py
+        - other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: browser_route
+    attributes:
+      label: How was the browser reached
+      options:
+        - A browser the script launched itself
+        - A remote browser over --cdp-endpoint
+        - No browser (scraper_api_client.py over plain HTTP)
+        - Not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: exit_code
+    attributes:
+      label: Exit code
+      description: >-
+        `echo $?` straight after the run. These mean specific things: 3 is a
+        refusal (the site's "page unavailable"), 4 is "ran fine, found
+        nothing", 5 is "the pages never arrived", 2 is bad usage or a search
+        the site widened. The table is in the README.
+      placeholder: "4"
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The exact command
+      description: With credentials replaced by `***`.
+      render: shell
+      placeholder: |
+        xvfb-run -a python3 playwright_scraper.py \
+          --url "https://www.autotrader.com/cars-for-sale/all-cars/toyota/camry/new-york-ny" \
+          --pages 3 --out camry
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: >-
+        The whole run, not just the last line — the useful detail is usually
+        upstream of the error. Credentials replaced by `***`.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+      placeholder: >-
+        75 cars over 3 pages, as the site shows 558 for this search.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Please run and paste:
+        ```
+        python3 -c "import sys, platform; print(sys.version, platform.platform())"
+        pip list 2>/dev/null | grep -Ei "playwright|pyppeteer|selenium|beautifulsoup4|requests|webdriver"
+        python3 smoke_test.py | tail -3
+        ```
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: The offline suite passes on my machine (`python3 smoke_test.py`)
+          required: true
+        - label: I removed every API key, password and credentialled URL from this report
+          required: true
