@@ -182,17 +182,21 @@ jobs:
 
       - name: The entrypoint runs inside the image
         # Its CMD is --help, so a bare `run` exercises the default path — and
-        # the entrypoint is xvfb-run, so this also proves the virtual display
-        # starts. This is the invocation a broken image fails on.
+        # the entrypoint starts the virtual display first, so this also
+        # proves that returns. The first build's entrypoint was xvfb-run,
+        # which as PID 1 waits forever for Xvfb's ready signal: this step
+        # hung for fifteen minutes. Bounded now, so a hang is a failure.
+        timeout-minutes: 3
         run: docker run --rm autotrader-scraper:ci
 
       - name: A HEADFUL Chromium actually launches in the image
         # The engine is headful by default because the site refuses headless
         # (see the README), so a Chromium that only starts headless would be
         # a broken image that passes the step above. Launched under the same
-        # xvfb-run the entrypoint uses.
+        # display the entrypoint starts (`--exec` runs a command under it).
+        timeout-minutes: 3
         run: |
-          docker run --rm --entrypoint xvfb-run autotrader-scraper:ci -a python3 -c "
+          docker run --rm autotrader-scraper:ci --exec python3 -c "
           from playwright.sync_api import sync_playwright
           with sync_playwright() as p:
               b = p.chromium.launch(headless=False)

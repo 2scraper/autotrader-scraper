@@ -9,8 +9,9 @@
 #     --pages 3 --out /out/camry
 #
 # The site serves its pages to a HEADFUL browser only (headless Chromium was
-# refused on every measurement, 2026-09-24), so the entrypoint runs the
-# engine under xvfb-run: a display inside the container, no window anywhere.
+# refused on every measurement, 2026-09-24), so the entrypoint starts a
+# virtual display (Xvfb) first: a display inside the container, no window
+# anywhere. docker-entrypoint.sh says why it is not `xvfb-run`.
 # It also wants a US residential exit: pass AUTOTRADER_PROXY through
 # --env-file (never on the command line, where `ps` can read it). Nothing
 # here bakes in a credential.
@@ -35,7 +36,7 @@ RUN apt-get update \
 # container that nothing in the repo would have noticed.
 COPY captcha_solver.py cli.py env_config.py fingerprint_client.py \
      output_writer.py page_flow.py playwright_scraper.py product_parser.py \
-     proxy_pool.py diff_runs.py ./
+     proxy_pool.py diff_runs.py docker-entrypoint.sh ./
 
-ENTRYPOINT ["xvfb-run", "-a", "python3", "playwright_scraper.py"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["--help"]

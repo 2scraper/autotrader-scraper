@@ -1100,6 +1100,15 @@ def check_dockerfile_copies_everything_the_entrypoint_imports():
     check("the image does not carry the fixture generator or the suite",
           not ({"smoke_test", "make_fixtures"} & copied))
     check("the image can run a HEADFUL browser (xvfb)", "xvfb" in dockerfile.lower())
+    entry = re.search(r"^ENTRYPOINT\s+(.*)$", dockerfile, re.M)
+    check("the ENTRYPOINT is not xvfb-run (as PID 1 it waited forever: the "
+          "first CI build hung on --help)", entry and "xvfb-run" not in entry.group(1))
+    script = os.path.join(HERE, "docker-entrypoint.sh")
+    check("docker-entrypoint.sh is COPYed into the image",
+          "docker-entrypoint.sh" in " ".join(copy_lines))
+    check("...and is executable", os.access(script, os.X_OK))
+    check("...and its wait for the display is bounded",
+          '"$i" -lt 50' in open(script, encoding="utf-8").read())
 
 
 def check_pyproject_lists_every_module():
