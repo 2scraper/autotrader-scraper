@@ -3,15 +3,15 @@ captcha_solver.py
 ------------------
 Shared helper used by all three scrapers (Playwright / Selenium / Puppeteer).
 
-Detection runs after EVERY page navigation in the main loop of all three
-scrapers, regardless of what URL was requested (category hub, product page,
-sign-in, checkout, anything) — this is deliberate, not scoped to any one
-page. If Transfermarkt renders a reCAPTCHA/Turnstile challenge anywhere —
-this fires. Live research for this repo (2026-09-10, one proxied fetch each
-of a ranking page, a player profile, a squad page and a transfer list, all
-served without any challenge or 403) found none, but that is a much smaller
-sample than the family's other members ran before writing this note — see
-the closing section of this file for what that does and does not license.
+In this repo the solver is reached only through page_flow: a page the
+classifier names `challenge` gets at most one solve (SOLVES_PER_PAGE), and
+the engines' handle_captcha_if_present hands it a reCAPTCHA found on that
+page. On autotrader.com no captcha stood in front of any page measured on
+2026-09-24 — see the closing section of this file for what was measured,
+including the refusal page's own reCAPTCHA, which is never solved.
+
+The AWS WAF branch and several comments below name other sites in this
+family: they are where that code was measured, and are kept as provenance.
 
 Flow:
   1. Both detectors run and are reconciled (see reconcile_detections) to decide

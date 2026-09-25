@@ -21,11 +21,12 @@ autotrader_rows_*.*
 live_results/
 live_results.zip
 # ANY working directory a live run writes into, by KIND rather than by the one
-# name an older repo used (CLAUDE.md §24). Measured here: `live/` was not
-# listed, and a `--dump-html` of a 3-page run wrote `canary_dump.json.page3`,
-# which `*.json` does not cover. It sat untracked and NOT ignored, one
-# `git add -A` from a commit, until the credential scan flagged the 32-hex
-# announcement codes inside it.
+# name an older repo used (CLAUDE.md §24). Measured in a sibling repo:
+# `live/` was not listed, and a `--dump-html` of a 3-page run wrote
+# `canary_dump.json.page3`, which `*.json` does not cover. It sat untracked
+# and NOT ignored, one `git add -A` from a commit, until the credential scan
+# flagged the 32-hex ids inside it. Here `--dump-html x --pages 3` writes
+# `x.page1`..`x.page3`, covered by `*.page[0-9]*` below.
 live/
 out/
 output/
@@ -43,6 +44,12 @@ dumps/
 # --dump-html on success too. Large, and stale within hours.
 *_debug.html
 *_debug.png
+# A one-page `--dump-html page.html`, which the README itself suggests,
+# writes the served page at the repo root under the name given. A served
+# page carries the address that fetched it (`clientIp`) and a session id,
+# and the repo has no HTML of its own at the root, so every root .html is
+# ignored.
+/*.html
 *.html.page*
 *.json.page*
 *.page[0-9]*
