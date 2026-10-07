@@ -970,6 +970,16 @@ def parse_record(rec: Dict[str, Any], owner: Dict[str, Any],
     return row_cls(**cols)
 
 
+def result_ids(doc: Optional[str]) -> List[str]:
+    """The organic result ids the page itself lists, distinct, in order —
+    what a parsed page's row count is checked against."""
+    ids: List[str] = []
+    for i in (store(doc).get("srp_results") or {}).get("activeResults") or []:
+        if str(i) not in ids:
+            ids.append(str(i))
+    return ids
+
+
 def parse_listing(doc: str, query: Query, page: int = 1,
                   currency_hint: Optional[str] = None) -> List[Vehicle]:
     """The organic results of one results page, in the page's order.

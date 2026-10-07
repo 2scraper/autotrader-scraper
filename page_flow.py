@@ -39,8 +39,8 @@ from product_parser import (DEFAULT_PAGE_SIZE, DEFAULT_SORT, MAX_PAGES,
                             Query, check_ids, currency, detect_bot_challenge,
                             detect_page_state, dropped_segments,
                             listing_ids_from_file, page_facts, parse_page,
-                            query_from_url, request_for, search_url,
-                            site_page_for)
+                            query_from_url, request_for, result_ids,
+                            search_url, site_page_for)
 
 log = logging.getLogger("page_flow")
 
@@ -200,6 +200,8 @@ def stop_reason_for(outcome) -> str:
     """The run's stop_reason when `outcome` is the page that ended it."""
     if getattr(outcome, "blocked_by", None):
         return "blocked_%s" % outcome.blocked_by
+    if getattr(outcome, "parser_failed", False):
+        return "parser_found_nothing"
     if getattr(outcome, "state", None) == "throttled":
         return "throttled"
     return "page_load_timeout"
@@ -343,18 +345,33 @@ class PageOutcome:
     spotlights: int = 0
     site_query: dict = field(default_factory=dict)
     currency: Optional[str] = None
+    # Listing: the page's own result list named ids that its store holds no
+    # record for. All of them is `parser_failed`; some is counted.
+    results_without_record: int = 0
+    parser_failed: bool = False
 
     @property
     def ok(self) -> bool:
-        return not self.load_failed and self.blocked_by is None
+        return (not self.load_failed and self.blocked_by is None
+                and not self.parser_failed)
 
 
-# The columns the site filled on EVERY record of every capture, per mode
-# (259 results across eight captures, 2026-09-24). Below this share the
-# payload has moved rather than the data being unusual. Deliberately NOT
-# here: `price` (a no-price listing is legitimate), `deal_rating` (127 of
-# 259), `mpg_city` (209 of 259), `image_url` (241 of 259).
+# How full a column must be, across a RUN, before the run is reported as
+# having lost it. Below the floor the page's store has moved rather than
+# the data being unusual. Before 0.1.1 this was a log warning only, and a
+# warning is read by nobody once a run exits 0: a renamed `vin` came back
+# exit 0 with VIN empty on every row, and a renamed `pricingDetail` came
+# back exit 0 with every price empty and no warning at all.
+#
+# The core columns were filled on every record of every capture (259
+# results, 2026-09-24), hence 99. `price` is legitimately empty on a
+# "Contact Dealer For Price" listing, and those sort FIRST under price-desc
+# and year-desc: the emptiest page measured was 16 of 25 priced (64%), on
+# both. A renamed price is 0%, so the floor sits well below the first and
+# well above the second. Deliberately NOT here: `deal_rating` (127 of 259),
+# `mpg_city` (209 of 259), `image_url` (241 of 259).
 CORE_FIELD_FLOOR = 99
+PRICE_FIELD_FLOOR = 25
 CORE_FIELDS = {
     "listing": ("sku", "title", "vin", "year", "make", "model", "mileage",
                 "seller_name"),
@@ -362,17 +379,26 @@ CORE_FIELDS = {
 }
 
 
-def _core_field_warnings(rows: List, mode: str, page_num: int) -> None:
+def field_floors(mode: str) -> dict:
+    floors = {name: CORE_FIELD_FLOOR for name in CORE_FIELDS.get(mode, ())}
+    floors["price"] = PRICE_FIELD_FLOOR
+    return floors
+
+
+def field_coverage(rows: List, mode: str) -> dict:
+    """{column: % of rows carrying it} for the columns that have a floor."""
     if not rows:
-        return
-    for name in CORE_FIELDS.get(mode, ()):
+        return {}
+    out = {}
+    for name in field_floors(mode):
         filled = sum(1 for r in rows if getattr(r, name, None) not in (None, "", []))
-        share = 100.0 * filled / len(rows)
-        if share < CORE_FIELD_FLOOR:
-            log.warning("Only %.0f%% of page %d carries `%s`, against a "
-                        "measured floor of %d%%. Every record of every capture "
-                        "had one, so the page's store has moved — re-run with "
-                        "--dump-html.", share, page_num, name, CORE_FIELD_FLOOR)
+        out[name] = round(100.0 * filled / len(rows), 1)
+    return out
+
+
+def fields_below_floor(coverage: dict, mode: str) -> List[str]:
+    floors = field_floors(mode)
+    return sorted(n for n, share in coverage.items() if share < floors.get(n, 0))
 
 
 def _dump(args, page_num: int, text: str) -> None:
@@ -406,7 +432,11 @@ def _navigate(ops, url: str, mode: str, expect_id: Optional[str],
     text = ops.document_text()
     state = classify(text, status, final_url, mode, expect_id)
     waited = 0
-    while state == "unknown" and waited < READY_WAIT_MS:
+    # An engine with no browser of its own (the Scraper API) declares
+    # `runs_scripts = False`: nothing can replace its document, so polling
+    # it would re-read the same bytes for READY_WAIT_MS.
+    while (state == "unknown" and waited < READY_WAIT_MS
+           and getattr(ops, "runs_scripts", True)):
         ops.wait_ms(READY_POLL_MS)
         waited += READY_POLL_MS
         text = ops.document_text()
@@ -547,12 +577,45 @@ def fetch_one_page(ops, args, pool, query: Query, page_num: int,
     if mode == "listing" and page_num == 1 and outcome.total_available is not None:
         log.info("The site reports %d match(es), and serves %s page(s) of "
                  "them.", outcome.total_available, outcome.pages_available)
-    _core_field_warnings(rows, mode, page_num)
+    if mode == "listing" and state == "content":
+        # The page's own result list says how many rows it holds, so a
+        # shortfall is arithmetic rather than a guess. Every listed id
+        # had a record on every capture (259 of 259). A renamed `inventory`
+        # used to read as "the search matched nothing", exit 4, beside a
+        # count of 558 (measured here 2026-10-07).
+        listed = result_ids(text)
+        outcome.results_without_record = max(0, len(listed) - len(rows))
+        if listed and not rows:
+            outcome.parser_failed = True
+            debug = _save_debug(args, page_num, text)
+            log.error("Page %d lists %d result(s) and none of them has a "
+                      "record this parser can read — the page's store has "
+                      "moved. Saved to %s. Not an empty search: the site "
+                      "counts %s match(es).", page_num, len(listed), debug,
+                      outcome.total_available)
+        elif outcome.results_without_record:
+            log.warning("Page %d lists %d result(s) but only %d have a record "
+                        "this parser can read.", page_num, len(listed), len(rows))
     return outcome
 
 
+def fetch_summary(args, pool=None) -> dict:
+    """How the pages were fetched, for the sidecar, with no credential in
+    it. A run that comes back refused is first a question about THIS: which
+    engine, headful or not, through which exit (host and port, the half of a
+    proxy URL that is not the secret)."""
+    proxy = None
+    if pool is not None and getattr(pool, "current", None):
+        from proxy_pool import mask
+        proxy = mask(pool.current)
+    return {"engine": getattr(args, "engine", None),
+            "headless": bool(getattr(args, "headless", False)),
+            "cdp_endpoint": bool(getattr(args, "cdp_endpoint", None)),
+            "proxy": proxy}
+
+
 def finish(args, query: Query, outcomes: List[PageOutcome], stop_reason: str,
-           blocked: bool) -> int:
+           blocked: bool, pool=None) -> int:
     """Merge the pages in PAGE order, write the output, return the exit code.
 
     One implementation for the three engines, so the merge order, the
@@ -570,7 +633,17 @@ def finish(args, query: Query, outcomes: List[PageOutcome], stop_reason: str,
     ok_pages = [o for o in outcomes if o.ok]
     failed_pages = sorted(o.page_num for o in outcomes if not o.ok)
     last_ok = max([o.page_num for o in ok_pages] or [1])
-    extra = {"query": query_summary(query)}
+    coverage = field_coverage(rows, query.mode)
+    below = fields_below_floor(coverage, query.mode)
+    if below:
+        log.error("%s below its measured floor across this run (%s). The rows "
+                  "are written, and the sidecar names the columns: the page's "
+                  "store has most likely moved. Re-run with --dump-html and "
+                  "open a 'Site changed' issue.", ", ".join(below),
+                  ", ".join("%s %.0f%%" % (n, coverage[n]) for n in below))
+    extra = {"query": query_summary(query), "fetch": fetch_summary(args, pool),
+             "field_coverage": coverage, "fields_below_floor": below,
+             "results_without_record": sum(o.results_without_record for o in outcomes)}
     if query.mode == "listing":
         first = next((o for o in outcomes if o.page_num == 1), None)
         total = getattr(first, "total_available", None)
@@ -699,7 +772,7 @@ def run_pages(open_ops, close_ops, run_concurrently, args, pool,
     finally:
         if ops is not None:
             close_ops(ops)
-    return finish(args, query, outcomes, stop_reason, blocked)
+    return finish(args, query, outcomes, stop_reason, blocked, pool)
 
 
 def worker_loop(ops, args, query: Query, work, results, results_lock,

@@ -22,7 +22,12 @@ mode takes `--vehicle-id`, a detail-page `--url`, or `--from-listing` with a
 listing run's JSON.
 
 Every run writes a `<out>.meta.json` beside the output with the site's own
-count, so a file can say "300 of 76,704" rather than only "300".
+count, so a file can say "300 of 76,704" rather than only "300". It also
+records how the pages were fetched (`fetch`: engine, headful or not, the
+proxy's host and port with no credential) and how full the key columns came
+back (`field_coverage`, and `fields_below_floor` naming any column that came
+back emptier than it has ever been measured — the sign the site's page has
+moved while the run still exited 0).
 
 ---
 
@@ -41,7 +46,8 @@ count, so a file can say "300 of 76,704" rather than only "300".
 | Chromium's new headless mode (full Chrome) | US residential | "page unavailable" |
 | **headful** Chromium | datacentre | "page unavailable" |
 | **headful** Chromium | **US residential** | **served**: 1.6-3.1 MB, the full results |
-| the 2Captcha Scraper API, its own exits | — | "page unavailable" |
+| the 2Captcha Scraper API, its own exits (2026-09-24) | — | "page unavailable", 1 of 1 |
+| the same, re-measured 2026-10-07 | — | **served** 1 of 4 (25 rows); the other 3 answered HTTP 408, the API's sync wait running out, not billed |
 | one Scraping Browser profile, `country-us` | — | "page unavailable", 2 of 2 |
 
 "Page unavailable" is a 3.7 KB static page from Akamai, served **under HTTP
@@ -183,7 +189,7 @@ miles from the searched ZIP).
 | `playwright_scraper.py` | **Primary.** Authenticates a proxy and a remote CDP endpoint. |
 | `puppeteer_scraper.py` | pyppeteer is effectively unmaintained; here for parity. Its own Chromium would not start on the test machine, so point `--chromium-path` at Playwright's. Its built-in proxy authentication does not work with current Chromium (the CDP method it uses was removed), so this engine answers the proxy's challenge through the CDP `Fetch` domain itself. Slower: every request is paused and continued. |
 | `selenium_scraper.py` | Drives the Chrome you already have. **Cannot authenticate a proxy** (`--proxy-server` takes an address only) or a remote CDP endpoint. On this site that matters: a US residential proxy is nearly always credentialled, so this engine works from a US residential connection of its own, or through a proxy that authorises by source IP. |
-| `scraper_api_client.py` | No local browser: the 2Captcha Scraper API fetches the page, both modes. Its own exits were refused (above, $0.0005 a task); `--cdp-url` routes it through a Scraping Browser session instead. |
+| `scraper_api_client.py` | No local browser: the 2Captcha Scraper API fetches the page, both modes. Runs the same page loop as the browser engines. Its own exits were refused on 2026-09-24 and served 1 of 4 tries on 2026-10-07 (above; $0.0005 a served task, a 408 is not billed), so treat it as a sometimes-path; `--cdp-url` routes it through a Scraping Browser session instead. |
 
 The page loop (navigation, the readiness poll, retries, rotation, parsing,
 the widened-search check, the end of a search) is one implementation in
@@ -228,8 +234,11 @@ Nothing here integrates a competitor.
 | 2 | bad usage, including a search the site WIDENED (a slug it does not know) |
 | 3 | blocked: the site's "page unavailable", distinct from an empty search |
 | 4 | zero rows: the search matched nothing, or every vehicle asked for has gone |
-| 5 | the pages were never obtained: a timeout, a dead proxy, a remote API error |
+| 5 | the pages were never obtained: a timeout, a dead proxy, a remote API error — or a page that lists its results while its store holds no record for them (`parser_found_nothing`: the site's page has moved, and this is never reported as an empty search) |
 | 6 | partial: some pages came back and some did not |
+
+`--retries` counts ATTEMPTS per page, the first one included, in every
+engine (so `1` is one try with no retry); `0` is refused.
 
 **A run that finds nothing writes nothing**, so a failure never replaces last
 night's good output with `[]`. `--allow-empty` is the opt-out.
@@ -264,13 +273,16 @@ parser reads and scrubbed of the address and session that fetched them by
 original. The suite drives the shared page loop end to end with a fake
 browser: a three-page search that runs past its end, a refusal, an empty
 search, a timeout, a widened search, and a vehicle run with a sold car in
-the middle. Each of ten planted faults was confirmed to turn it red on the
+the middle. Each of fifteen planted faults was confirmed to turn it red on the
 check that names it.
 
 The [canary](.github/workflows/canary.yml) runs a real 3-page search and
-three detail pages daily, **when the repo has an `AUTOTRADER_PROXY`
-secret**. Without one it skips with a notice rather than going red: every
-datacentre address measured was refused, and a GitHub runner is one.
+three detail pages daily through the repo's `AUTOTRADER_PROXY` secret (a US
+residential exit), and fails on a column below its floor as well as on a
+refusal. Measured from its own history: 11 of 12 runs green between
+2026-09-25 and 2026-10-06; the red one (2026-10-04) was three navigation
+timeouts at the exit, exit 5. Without the secret it skips with a notice
+rather than going red.
 
 ---
 

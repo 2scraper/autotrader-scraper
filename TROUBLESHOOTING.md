@@ -61,6 +61,24 @@ alone; `--allow-empty` writes the empty file.
   profile's credentials last about a day. Get a fresh endpoint.
 * **"… HTTP 500"** — another run still holds that profile (`pid`).
 
+* **"Page N lists K result(s) and none of them has a record this parser can
+  read"** (`stop_reason: parser_found_nothing`) — the site served the page
+  and its own result list, but the records behind it are no longer where
+  the parser looks. The site's page has moved. Open a "Site changed" issue
+  with the saved `_debug.html` (paste the relevant part; the whole file
+  carries the address that fetched it).
+* **"Scraper API returned HTTP 408"** — the API's synchronous wait ran out
+  before the page answered. Measured 2026-10-07 on 3 of 4 tasks, none of
+  them billed. Retry later, or use a browser engine.
+
+## Exit 0, but `fields_below_floor` in the sidecar is not empty
+
+The run finished and wrote its rows, and a key column came back emptier
+than it has ever been measured (`vin` on fewer than 99% of rows, `price` on
+fewer than 25%). That is how a renamed field on the site shows up: every row
+written, that column empty. The log says the same in an ERROR line, and the
+canary fails on it. Treat it like the item above.
+
 ## Exit 6 — partial
 
 Some pages came back and a later one did not. The output holds what was

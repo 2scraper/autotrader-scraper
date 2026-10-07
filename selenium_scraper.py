@@ -349,7 +349,7 @@ def parse_args(argv=None):
                     "detail pages (Selenium edition)")
     add_search_args(p)
     add_common_args(p)
-    return finish_args(p, p.parse_args(argv))
+    return finish_args(p, p.parse_args(argv), engine="selenium")
 
 
 def main(argv=None) -> int:

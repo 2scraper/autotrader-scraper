@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autotrader-scraper"
-version = "0.1.0"
+version = "0.1.1"
 description = "autotrader.com scraper: search results and vehicle detail pages — price, KBB fair price and deal rating, VIN, mileage, dealer — read from the page's own store (Playwright, Selenium or pyppeteer)."
 readme = "README.md"
 license = "MIT"

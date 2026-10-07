@@ -501,7 +501,7 @@ def parse_args(argv=None):
                         "and a site behind a bot manager may score an old "
                         "browser; Playwright's Chromium works "
                         "(~/.cache/ms-playwright/chromium-*/chrome-linux/chrome).")
-    return finish_args(p, p.parse_args(argv))
+    return finish_args(p, p.parse_args(argv), engine="puppeteer")
 
 
 def main(argv=None) -> int:
