@@ -1,14 +1,11 @@
 # One real run of each mode against autotrader.com, daily. tests.yml
 # (deliberately) never touches the site.
 #
-# This canary NEEDS a secret, and skips without one rather than going red.
-# autotrader.com serves its pages to a US residential exit with a headful
-# browser, and refused every datacentre address this repo was measured from
-# (2026-09-24). A GitHub runner is a datacentre address; what the site
-# answers a runner specifically has not been measured, so the job does not
-# pretend to know: with no secret it says why it is not running and goes
-# green, because a check that is always red teaches everyone to ignore
-# checks.
+# This canary NEEDS a secret, and FAILS without one. autotrader.com serves
+# its pages to a US residential exit with a headful browser, and refused
+# every datacentre address this repo was measured from (2026-09-24). A
+# canary that skips green says nothing about the site while its badge says
+# all is well, so a missing secret is reported as a red run naming it.
 #
 # To turn it on, a US residential proxy:
 #
@@ -45,10 +42,11 @@ jobs:
       # are full with room to spare.
       CANARY_URL: "https://www.autotrader.com/cars-for-sale/used-cars/toyota/camry/new-york-ny?searchRadius=50"
     steps:
-      - name: Skip without a proxy
+      - name: Fail without a proxy
         if: env.AUTOTRADER_PROXY == ''
         run: |
-          echo "::notice::canary skipped: no AUTOTRADER_PROXY secret. autotrader.com serves a US residential exit with a headful browser, and refused every datacentre address measured; set the secret to run this (see the workflow header)."
+          echo "::error::canary cannot test the site: the AUTOTRADER_PROXY secret is missing or empty. autotrader.com serves a US residential exit with a headful browser and refused every datacentre address measured; set the secret (see the workflow header)."
+          exit 1
 
       - uses: actions/checkout@v4
         if: env.AUTOTRADER_PROXY != ''
@@ -128,8 +126,9 @@ jobs:
               problems.append("price below its pre-fee price on %s" % bad[:3])
           if {r["currency"] for r in rows} != {"USD"}:
               problems.append("currency %r" % {r["currency"] for r in rows})
-          if sum(1 for r in rows if r["vin"]) < len(rows):
-              problems.append("a row without a VIN")
+          for col in ("sku", "title", "vin", "year", "make", "model", "seller_name"):
+              if sum(1 for r in rows if r[col] not in (None, "")) < len(rows):
+                  problems.append("a row without %s" % col)
           # A moved store still exits 0 with columns empty; the sidecar names
           # them, and this is where that turns red rather than into a log line.
           if meta.get("fields_below_floor"):

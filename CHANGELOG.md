@@ -39,6 +39,10 @@ said so at the top of its release notes.
 - A 401 from `--cdp-endpoint` no longer claims profile credentials last
   "about a day": how long they last varies, and one was measured working
   ten days after issue.
+- The canary no longer goes green without the `AUTOTRADER_PROXY` secret:
+  it fails with an error naming it. Every row must also carry `sku`,
+  `title`, `vin`, `year`, `make`, `model` and `seller_name`, and exit 6 is
+  reported as a partial run.
 - Comments and docstrings no longer cite private notes; the rule is stated
   in place. A suite check keeps it that way.
 - A vehicle (detail) page that has moved to a payload this parser cannot

@@ -278,11 +278,12 @@ check that names it.
 
 The [canary](.github/workflows/canary.yml) runs a real 3-page search and
 three detail pages daily through the repo's `AUTOTRADER_PROXY` secret (a US
-residential exit), and fails on a column below its floor as well as on a
-refusal. Measured from its own history: 11 of 12 runs green between
+residential exit; every datacentre address measured was refused, and a
+GitHub runner is one), and fails on a column below its floor as well as on
+a refusal. Measured from its own history: 11 of 12 runs green between
 2026-09-25 and 2026-10-06; the red one (2026-10-04) was three navigation
-timeouts at the exit, exit 5. Without the secret it skips with a notice
-rather than going red.
+timeouts at the exit, exit 5. Without the secret it FAILS, naming it: a
+canary that cannot reach the site must not report green.
 
 ---
 
