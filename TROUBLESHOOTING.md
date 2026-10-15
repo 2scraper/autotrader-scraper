@@ -58,7 +58,9 @@ alone; `--allow-empty` writes the empty file.
   names which. A residential exit can be slow: a 1.8 MB results page took
   3 to 16 seconds through one on 2026-09-24.
 * **"could not connect to --cdp-endpoint … HTTP 401"** — a Scraping Browser
-  profile's credentials last about a day. Get a fresh endpoint.
+  profile's credentials have expired. How long they last varies (one
+  endpoint was measured still working ten days after it was issued), so
+  treat the 401 itself as the signal and get a fresh endpoint.
 * **"… HTTP 500"** — another run still holds that profile (`pid`).
 
 * **"Page N lists K result(s) and none of them has a record this parser can

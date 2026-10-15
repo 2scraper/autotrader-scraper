@@ -2,8 +2,7 @@
 product_parser.py
 -----------------
 Everything this repo knows about autotrader.com. The engines, page_flow and
-output_writer know nothing about the site beyond what is imported from here
-(CLAUDE.md §1).
+output_writer know nothing about the site beyond what is imported from here.
 
 What the site serves, measured 2026-09-24
 -----------------------------------------
@@ -29,7 +28,7 @@ Three things that are easy to get wrong, each measured:
   `application/ld+json` blocks: a BreadcrumbList, a CollectionPage with no
   items, and three `Product`/`Car` blocks, which are the three PAID
   spotlight listings rather than results. 3 against 25 on every page
-  captured (§24's decoy, on a second site). It is read for exactly one
+  captured (a sibling site has the same decoy). It is read for exactly one
   thing, the currency, which is stated nowhere else on the page.
 * **`inventory` is not the result list.** It holds the placements as well
   (46 records beside 25 results on one page), and on a search with no
@@ -136,7 +135,7 @@ class Query:
     page_size: int = DEFAULT_PAGE_SIZE
     # The page the URL itself asked for. A run started on `?page=3` calls
     # that page 1 of the RUN while asking the site for page 3, and the
-    # out-of-range check compares against the latter (§24).
+    # out-of-range check compares against the latter.
     first_page: int = 1
     vehicle_ids: Tuple[str, ...] = ()
 
@@ -570,12 +569,12 @@ UNAVAILABLE_MARKERS = ("Autotrader - page unavailable",
 # OBSERVED on this site, which answers with the page above instead. It is
 # here because it is the same edge; the id's SHAPE is matched with any
 # whitespace, since the bytes carry two spaces and a browser re-serialises
-# them (§24).
+# them.
 _AKAMAI_REF_RE = re.compile(r"Reference\s*#\s*\d+\.[0-9a-f]+\.\d+\.[0-9a-f]+", re.I)
 
 # Only the head of a document is unescaped and searched for refusal
 # markers: a refusal is a few KB, and a 1.8 MB results page could carry a
-# marker-shaped string deep in a dealer's description (§20).
+# marker-shaped string deep in a dealer's description.
 _REFUSAL_SCAN_CHARS = 12_000
 
 # A reCAPTCHA, or Akamai's behavioural challenge page. NEITHER has been
@@ -583,7 +582,7 @@ _REFUSAL_SCAN_CHARS = 12_000
 # captured, served or refused. They are named so that a page carrying one
 # is reported as a challenge rather than as an unexplained parse failure.
 # Specific loader paths only: a bare "captcha" or "recaptcha" is not a
-# marker anywhere a Scraping Browser extension can inject its hunters (§24).
+# marker anywhere a Scraping Browser extension can inject its hunters.
 CHALLENGE_MARKERS = ("recaptcha/api.js", "recaptcha/api2/anchor",
                      "recaptcha/enterprise.js", "sec-if-cpt-container",
                      "/_sec/cp_challenge/")
@@ -609,7 +608,7 @@ def detect_page_state(doc: Optional[str], status: Optional[int] = None,
     """Name what the site answered with. page_flow's STATE_POLICY says what
     each name means for a retry, a solve and the exit code.
 
-    Ordered by how much each signal PROVES (§17): the site's own store
+    Ordered by how much each signal PROVES: the site's own store
     first, since no refusal page carries one; then the refusal markers;
     then the status, which is 200 on the refusal this site actually sends.
     """
@@ -660,7 +659,30 @@ def detect_page_state(doc: Optional[str], status: Optional[int] = None,
         return "throttled"
     if status in (401, 403):
         return "blocked"
+    if served_by_site(doc):
+        # The site's own page, built from its own assets, with no refusal on
+        # it and no store this parser can read. Retrying fetches the same
+        # 2.4 MB again and gets the same answer, and calling it "never
+        # arrived" sends the reader to check a proxy that worked. Measured
+        # 2026-10-13/14: the results page moved to a different payload and
+        # was retried three times as `unknown`, then reported exit 5 with
+        # "a dead proxy or a timeout".
+        return "unreadable"
     return "unknown"
+
+
+# The site's own static assets, under its own path. Counted on served pages
+# and refusals (2026-09-24 and 2026-10-14): 19 to 69 on every served results
+# page, in both payload shapes; 0 on Akamai's "page unavailable" and 0 on
+# the same refusal fetched over the Scraping Browser. A browser's own error
+# page names the host in its title but references none of these.
+SITE_ASSET_MARKER = "/cars-for-sale/_next/static/"
+SITE_ASSET_MIN = 3
+
+
+def served_by_site(doc: Optional[str]) -> bool:
+    """Whether a document was built out of the site's own assets."""
+    return (doc or "").count(SITE_ASSET_MARKER) >= SITE_ASSET_MIN
 
 
 # ---------------------------------------------------------------------------
@@ -673,7 +695,7 @@ class PageFacts:
     # The page the server actually rendered. Asked for page 99 of a
     # 12-page search, the site REDIRECTS to page 12 (HTTP 200, 25 real
     # results), so the page number asked for proves nothing about the rows
-    # (§23, a third spelling: the LAST page, not the first).
+    # (unlike sibling sites, which re-serve the FIRST page).
     served_page: int = 1
     total_results: Optional[int] = None
     pages_available: Optional[int] = None
@@ -727,7 +749,7 @@ def currency(doc: Optional[str]) -> Optional[str]:
     is a fact about the page rather than about which cars it lists. The
     redux records carry bare numbers, and a detail page carries no JSON-LD
     and no "USD" anywhere (0 occurrences, 2026-09-24), so a detail row's
-    currency is null rather than a default (§4).
+    currency is null rather than a default.
     """
     for m in _LD_RE.finditer(doc or ""):
         try:
@@ -779,7 +801,7 @@ def _int(v: Any) -> Optional[int]:
 def _positive(v: Any) -> Optional[int]:
     """A positive whole number, or None. ZERO IS NOT A PRICE here:
     `kbbFppAmount` is 0 on a new car the valuation does not cover, and
-    written through it would drag every average a consumer computes (§21).
+    written through it would drag every average a consumer computes.
     The same holds for an mpg of 0."""
     n = _int(v)
     return n if n and n > 0 else None
@@ -844,7 +866,7 @@ def prices(rec: Dict[str, Any]) -> Dict[str, Optional[int]]:
 
     `dealerDiscountedPrice` is left out on purpose: it was above the
     displayed price on some records and below it on others, and a column
-    whose meaning cannot be stated should not exist (§9).
+    whose meaning cannot be stated should not exist.
     """
     p = _d(rec.get("pricingDetail"))
     sale = _positive(p.get("salePrice"))
@@ -895,7 +917,7 @@ def _seller(rec: Dict[str, Any], owner: Dict[str, Any]) -> Dict[str, Any]:
     if distance is None:
         distance = owner.get("distanceFromSearch")
     # A seller with no reviews: both columns null together, never a 0.0
-    # grade beside a count of 0 (§21).
+    # grade beside a count of 0.
     rating_count = _positive(rating.get("count"))
     return {
         "seller_id": _str(rec.get("ownerId") or owner.get("id")),
@@ -991,7 +1013,7 @@ def parse_listing(doc: str, query: Query, page: int = 1,
     says so in `premium_spotlight`.
 
     `position` counts the rows EMITTED on this page, so it does not move
-    when the placements do (§24).
+    when the placements do.
     """
     s = store(doc)
     inv = s.get("inventory") or {}

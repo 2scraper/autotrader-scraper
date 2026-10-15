@@ -8,7 +8,7 @@
 # answers a runner specifically has not been measured, so the job does not
 # pretend to know: with no secret it says why it is not running and goes
 # green, because a check that is always red teaches everyone to ignore
-# checks (CLAUDE.md §11).
+# checks.
 #
 # To turn it on, a US residential proxy:
 #
@@ -40,8 +40,8 @@ jobs:
     timeout-minutes: 25
     env:
       AUTOTRADER_PROXY: ${{ secrets.AUTOTRADER_PROXY }}
-      # A filtered search, >= 3 pages (§11: with one page, pagination is
-      # never exercised). 557-558 matches on 2026-09-24, so three pages of 25
+      # A filtered search, >= 3 pages (with one page, pagination is never
+      # exercised). 557-558 matches on 2026-09-24, so three pages of 25
       # are full with room to spare.
       CANARY_URL: "https://www.autotrader.com/cars-for-sale/used-cars/toyota/camry/new-york-ny?searchRadius=50"
     steps:
@@ -72,8 +72,8 @@ jobs:
           set +e   # `run:` is `bash -e`; without this a non-zero exit aborts
                    # the step before the echo below records it.
           xvfb-run -a python playwright_scraper.py --url "$CANARY_URL" --pages 3 \
-            --out canary --format both --dump-html canary_dump.html
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+            --out canary --format both --dump-html canary_dump.html 2>&1 | tee canary.log
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Interpret the listing run
         if: env.AUTOTRADER_PROXY != ''
@@ -84,7 +84,18 @@ jobs:
             0) ;;
             3) echo "::error::Blocked (akamai-unavailable is the site's 'page unavailable'). The exit in AUTOTRADER_PROXY was refused: check it is US and residential."; exit 1 ;;
             4) echo "::error::Zero rows from a search that is never empty. The page's store has moved; see canary_dump.html."; exit 1 ;;
-            5) echo "::error::The pages never arrived (a dead proxy or a timeout)."; exit 1 ;;
+            5|6)
+              # A run that read nothing writes no sidecar, so the log is
+              # where the reason is. A served page the parser cannot read is
+              # named apart from a page that never arrived.
+              if grep -q "has changed shape" canary.log; then
+                echo "::error::parser_found_nothing: the site served its results page and the parser could not read it. The page changed shape; see canary_page*_debug.html."
+              elif [ "$code" = 5 ]; then
+                echo "::error::The pages never arrived (a dead proxy or a timeout)."
+              else
+                echo "::error::Partial run: some pages were gathered, then the run stopped. See canary.meta.json."
+              fi
+              exit 1 ;;
             2) echo "::error::Refused as bad usage. If the log says the site WIDENED the search, the canary URL's slugs no longer match the site's."; exit 1 ;;
             *) echo "::error::Unexpected exit $code."; exit 1 ;;
           esac
@@ -167,4 +178,5 @@ jobs:
             canary_vehicle.meta.json
             canary_dump.html*
             canary_page*_debug.html
+            canary.log
           if-no-files-found: ignore

@@ -93,8 +93,9 @@ Then the rest of the presentation, in the order that matters:
    the site refused every datacentre address measured; without the secret
    it skips with a notice rather than going red. Dispatch it once both
    ways, and confirm the branch you expect ran.
-2. The repo description, homepage and topics set (see the family notes on
-   what those should say).
+2. The repo description, homepage and topics set: a description that names
+   what the site actually gives you, the homepage, and topics people search
+   for.
 3. Only then the row in the org profile README — and check it with an
    ANONYMOUS request rather than your own logged-in browser. A row pointing
    at a private repo is a 404 for every visitor, which costs more trust than

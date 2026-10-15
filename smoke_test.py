@@ -130,7 +130,7 @@ def check_fixture_corpus_is_real_and_scrubbed():
 
 
 # ---------------------------------------------------------------------------
-# The parser, asserted on VALUES rather than on coverage (§10)
+# The parser, asserted on VALUES rather than on coverage
 # ---------------------------------------------------------------------------
 
 def check_a_results_page_parses_to_the_captured_values():
@@ -202,7 +202,7 @@ def check_a_listing_with_no_asking_price_is_not_given_its_msrp():
 
 
 def check_zero_is_not_a_price():
-    """KBB publishes 0 as the fair price of a new car it does not value (§21)."""
+    """KBB publishes 0 as the fair price of a new car it does not value."""
     rows = _listing("srp_new_crv")
     equal("a 0 KBB fair price is null", {r.kbb_fair_price for r in rows}, {None})
     equal("new cars carry an MSRP", rows[0].msrp, 39305)
@@ -221,7 +221,7 @@ def check_private_sellers_have_no_phone_and_no_personal_id():
 
 def check_the_json_ld_is_a_decoy_and_placements_are_not_rows():
     """Five JSON-LD blocks on a results page, three of them Product/Car, and
-    those three are the PAID spotlight cars rather than results (§24). The
+    those three are the PAID spotlight cars rather than results. The
     fixture keeps one placement per list that is not a result, so this is a
     real test of the filter."""
     import product_parser as P
@@ -320,7 +320,7 @@ def check_a_detail_page_parses_and_agrees_with_its_listing_row():
     equal("open recalls", d.open_recalls, 0)
     equal("KBB owner reviews of the MODEL", (d.kbb_consumer_rating, d.kbb_review_count),
           (3.9, 349))
-    equal("a detail page states no currency, so none is invented (§4)", d.currency, None)
+    equal("a detail page states no currency, so none is invented", d.currency, None)
     equal("distance is null: a detail page has no search to measure from",
           d.distance_miles, None)
     check("the description is text", d.description and "<br" not in d.description.lower())
@@ -378,8 +378,8 @@ def check_the_refusal_is_blocked_and_never_a_challenge_to_solve():
 
 
 def check_markers_do_not_match_a_served_page():
-    """§18: count a marker on a page you know is good. And the Scraping
-    Browser's injected hunters must not read as a challenge (§24): the CDP
+    """Count a marker on a page you know is good. And the Scraping
+    Browser's injected hunters must not read as a challenge: the CDP
     refusal fixture carries 16 of them."""
     import product_parser as P
     for name in SERVED:
@@ -395,7 +395,7 @@ def check_markers_do_not_match_a_served_page():
 
 
 def check_a_marker_survives_both_encodings():
-    """§20: a marker must match the raw bytes AND the browser's re-serialised
+    """A marker must match the raw bytes AND the browser's re-serialised
     DOM; the head of the document is unescaped before matching."""
     import product_parser as P
     escaped = fx("refused_unavailable").replace("unavailable", "unavail&#97;ble")
@@ -554,7 +554,8 @@ def check_the_query_is_built_and_contradictions_refused():
 def check_state_policy():
     import page_flow as F
     equal("every state has a policy", sorted(F.STATE_POLICY),
-          ["blocked", "challenge", "content", "empty", "gone", "throttled", "unknown"])
+          ["blocked", "challenge", "content", "empty", "gone", "throttled", "unknown",
+           "unreadable"])
     check("content and empty are parsed, never retried or blocked",
           all(F.should_parse(s) and not F.should_retry(s) and not F.counts_as_blocked(s)
               for s in ("content", "empty")))
@@ -564,7 +565,7 @@ def check_state_policy():
     check("blocked: retried, never solved (the refusal's reCAPTCHA files a ticket)",
           F.should_retry("blocked") and not F.should_solve("blocked")
           and F.counts_as_blocked("blocked"))
-    check("throttled: retried, NOT blocked (§24)",
+    check("throttled: retried, NOT blocked",
           F.should_retry("throttled") and not F.counts_as_blocked("throttled"))
     equal("at most one solve per page", F.SOLVES_PER_PAGE, 1)
     advice = F.refusal_advice("akamai-unavailable")
@@ -578,7 +579,7 @@ def check_state_policy():
 
 
 def check_policy_constants_have_a_consumer():
-    """§17: a policy constant nothing reads is the same defect as dead code."""
+    """A policy constant nothing reads is the same defect as dead code."""
     src = _src("page_flow")
     engines = "".join(_src(m) for m in ENGINES)
     for constant in ("RETRY_ON_BLOCKED", "BLOCK_RETRIES_WITHOUT_POOL", "SOLVES_PER_PAGE",
@@ -914,7 +915,7 @@ def check_row_schema():
     prefix = ["source", "scraped_at", "url", "sku", "title", "price", "currency"]
     for cls in (Vehicle, VehicleDetail):
         names = [f.name for f in fields(cls)]
-        equal("%s: the family prefix is byte-identical and in order (§9)" % cls.__name__,
+        equal("%s: the family prefix is byte-identical and in order" % cls.__name__,
               names[:7], prefix)
         check("%s: the run-describing tail is present" % cls.__name__,
               {"page", "position", "mode", "sort", "data_source"} <= set(names))
@@ -955,7 +956,7 @@ def check_exit_codes():
     equal("3 blocked / 4 empty / 5 never obtained / 6 partial",
           (O.EXIT_BLOCKED, O.EXIT_NO_PRODUCTS, O.EXIT_FETCH_FAILED, O.EXIT_PARTIAL),
           (3, 4, 5, 6))
-    check("end_of_listing is a COMPLETE stop reason (§24)",
+    check("end_of_listing is a COMPLETE stop reason",
           "end_of_listing" in O.COMPLETE_STOP_REASONS)
 
 
@@ -1002,12 +1003,12 @@ def check_diff_runs_tracks_the_real_columns():
                   open(a[:-5] + ".meta.json", "w"))
         json.dump({"status": "complete", "query": {"sort": "price-asc"}},
                   open(b[:-5] + ".meta.json", "w"))
-        check("two different ORDERINGS are refused (different samples, §21)",
+        check("two different ORDERINGS are refused (different samples)",
               not D._check_comparable(types.SimpleNamespace(old=a, new=b)))
 
 
 # ---------------------------------------------------------------------------
-# The engines — the checks CLAUDE.md §17 says to steal
+# The engines — cross-engine checks
 # ---------------------------------------------------------------------------
 
 def check_engines_import_their_driver_at_module_level():
@@ -1031,7 +1032,7 @@ def check_engines_import_their_driver_at_module_level():
 
 
 def check_shared_calls_bind_against_the_real_signature():
-    """§17's check #1. A name that does not exist FAILS (§22). A name bound
+    """Binding check. A name that does not exist FAILS. A name bound
     in the calling file shadows a same-named module."""
     import captcha_solver
     import cli
@@ -1137,7 +1138,7 @@ SITE_FLAGS = {"--make", "--model", "--zip", "--radius", "--listing-type", "--sor
 
 
 def check_engine_flag_sets():
-    """§17's check #2: against the contract AND against each other, both
+    """Flag parity: against the contract AND against each other, both
     ways. The exception list IS the documentation."""
     sets = {m: _engine_flags(m) for m in ENGINES}
     for module, flags in sets.items():
@@ -1186,7 +1187,7 @@ def check_headful_is_the_default_and_a_missing_display_is_said_up_front():
 
 def check_no_engine_overrides_the_user_agent():
     """A bare UA override was scored after one page on a sibling site behind
-    the same vendor (§24); a fingerprint, which supplies the whole identity,
+    the same vendor; a fingerprint, which supplies the whole identity,
     is the only path allowed to set one."""
     for module in ENGINES:
         tree = ast.parse(_src(module))
@@ -1226,7 +1227,7 @@ def check_banned_and_removed_flags():
 
 
 def check_undefined_names_in_every_module():
-    """§10: compileall proves a file PARSES, not that its names RESOLVE."""
+    """compileall proves a file PARSES, not that its names RESOLVE."""
     import builtins
     for filename in sorted(f for f in os.listdir(HERE) if f.endswith(".py")):
         tree = ast.parse(open(os.path.join(HERE, filename), encoding="utf-8").read())
@@ -1325,7 +1326,9 @@ def check_pyproject_lists_every_module():
 def check_env_example_documents_exactly_what_the_loader_reads():
     import env_config
     text = open(os.path.join(HERE, ".env.example"), encoding="utf-8").read()
-    documented = set(re.findall(r"^([A-Z][A-Z0-9_]+)=", text, re.M))
+    # A variable documented as a commented-out example (`# AUTOTRADER_URL=`)
+    # still counts as documented.
+    documented = set(re.findall(r"^(?:# )?([A-Z][A-Z0-9_]+)=", text, re.M))
     equal("the example and the loader name the same variables",
           sorted(documented), sorted(env_config.ENV_KEYS))
     check("the per-site variables carry the AUTOTRADER_ prefix",
@@ -1356,7 +1359,7 @@ def check_credential_scan_is_one_implementation_invoked_from_both():
     script = os.path.join(HERE, ".github", "ci_checks.py")
     if not os.path.isdir(os.path.join(HERE, ".github")):
         # Inside the Docker image, which copies no .github at all. Triggered
-        # by the WHOLE directory being absent, never by one file in it (§22).
+        # by the WHOLE directory being absent, never by one file in it.
         skip("ci_checks", "no .github directory (the image)")
         return
     check("the credential scan exists as a script", os.path.exists(script))
@@ -1401,7 +1404,7 @@ def check_the_hex_exemption_is_one_context_only():
 
 
 # Assembled from pieces, so this file can be scanned like every other rather
-# than exempted (§22).
+# than exempted.
 BANNED_WORDING = (
     "cloud" + " browser", "anti" + "detect browser", "2scraper " + "Anti" + "detect Browser",
     "gate." + "2prx.com", "ANTI" + "DETECT_LOCAL_API",
@@ -1409,7 +1412,7 @@ BANNED_WORDING = (
 
 
 def check_banned_wording():
-    """§12, enforced by this test rather than by review."""
+    """Banned wording, enforced by this test rather than by review."""
     scanned = 0
     for root, dirs, files in os.walk(HERE):
         dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", ".pytest_cache",
@@ -1430,7 +1433,7 @@ def check_banned_wording():
 
 
 def check_concurrency_with_the_browser_stubbed():
-    """§10: driven through the SHARED worker loop with the fetch replaced."""
+    """Driven through the SHARED worker loop with the fetch replaced."""
     import page_flow
     import product_parser as P
     import queue as queue_mod
@@ -1552,7 +1555,7 @@ def check_fingerprint_kwargs_are_ones_the_driver_accepts():
 
 
 def check_engines_do_not_evaluate_a_string_in_the_browser():
-    """§18: wait_for_function evaluates a string, which a CSP without
+    """wait_for_function evaluates a string, which a CSP without
     unsafe-eval kills."""
     for module in ENGINES:
         tree = ast.parse(_src(module))
@@ -1634,7 +1637,7 @@ def check_x_debug_header_is_redacted():
 
 
 def check_captcha_capability_claims_match_the_code():
-    """§19: the most expensive bug this family can ship is a SENTENCE."""
+    """The most expensive bug this family can ship is a SENTENCE."""
     readme = open(os.path.join(HERE, "README.md"), encoding="utf-8").read().lower()
     for phrase in ("cannot be solved", "can't be solved", "is not solvable",
                    "solver is inapplicable", "no solver can", "unsolvable captcha"):
@@ -1645,7 +1648,7 @@ def check_captcha_capability_claims_match_the_code():
 
 
 def check_readme_numbers_are_not_stale():
-    """§17's check #4: a column count claimed in the README is a class's."""
+    """A column count claimed in the README is a class's."""
     readme = open(os.path.join(HERE, "README.md"), encoding="utf-8").read()
     from output_writer import ROW_CLASS_BY_MODE
     sizes = {len(fields(c)) for c in ROW_CLASS_BY_MODE.values()}
@@ -1654,6 +1657,248 @@ def check_readme_numbers_are_not_stale():
     for number in claims:
         check("the README's '%s columns' is a row class's size" % number,
               int(number) in sizes, "sizes are %s" % sorted(sizes))
+
+
+# ---------------------------------------------------------------------------
+# Output safety, configuration and classification (audit of 2026-10-14)
+# ---------------------------------------------------------------------------
+
+def _umask(value):
+    old = os.umask(value)
+    return old
+
+
+def check_a_failed_write_leaves_the_previous_output_intact():
+    import output_writer as W
+    rows = [W.Vehicle(sku="1", title="a"), W.Vehicle(sku="2", title="b")]
+    real_dump = W.json.dump
+
+    def broken_dump(obj, f, **kw):
+        f.write("[{\"partial\": ")
+        raise OSError("disk full (planted)")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "out.json")
+        W.write_json(rows, path)
+        good = open(path, "rb").read()
+        W.json.dump = broken_dump
+        try:
+            try:
+                W.write_json(rows[:1], path)
+                raised = False
+            except OSError:
+                raised = True
+        finally:
+            W.json.dump = real_dump
+        check("a write that fails partway raises (not swallowed)", raised)
+        equal("...and the previous out.json is byte-identical", open(path, "rb").read(), good)
+        equal("...and no temp file is left beside it", sorted(os.listdir(tmp)), ["out.json"])
+        meta = os.path.join(tmp, "out")
+        W.write_run_meta(meta, {"status": "complete"})
+        good = open(meta + ".meta.json", "rb").read()
+        W.json.dump = broken_dump
+        try:
+            try:
+                W.write_run_meta(meta, {"status": "partial"})
+            except OSError:
+                pass
+        finally:
+            W.json.dump = real_dump
+        equal("the sidecar survives a failed rewrite too",
+              open(meta + ".meta.json", "rb").read(), good)
+
+
+def check_written_files_get_the_umask_mode_and_keep_an_existing_one():
+    import output_writer as W
+    rows = [W.Vehicle(sku="1", title="a")]
+    for umask, want in ((0o022, 0o644), (0o002, 0o664), (0o077, 0o600)):
+        old = _umask(umask)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                for name, write in (("o.json", lambda p: W.write_json(rows, p)),
+                                    ("o.csv", lambda p: W.write_csv(rows, p))):
+                    path = os.path.join(tmp, name)
+                    write(path)
+                    equal("a new %s under umask %03o is %03o" % (name, umask, want),
+                          os.stat(path).st_mode & 0o777, want)
+        finally:
+            os.umask(old)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "o.json")
+        W.write_json(rows, path)
+        os.chmod(path, 0o640)
+        W.write_json(rows, path)
+        equal("an existing file keeps its own mode", os.stat(path).st_mode & 0o777, 0o640)
+
+
+def check_csv_cells_that_a_spreadsheet_would_run_are_escaped():
+    import output_writer as W
+    row = W.VehicleDetail(sku="1", title="=HYPERLINK(\"x\")", trim="+cmd",
+                          seller_name="@SUM(A1)", description="-minus",
+                          features=["=evil", "ok"], mileage=-5)
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "o")
+        rc = W.finish_run([row], out, "both", False, blocked=False,
+                          stop_reason="completed", pages_requested=1,
+                          pages_completed=1, start_url="u", final_url="u",
+                          mode="vehicle")
+        equal("the run itself is exit 0", rc, 0)
+        cells = next(csv.DictReader(open(out + ".csv", encoding="utf-8", newline="")))
+        equal("= is escaped", cells["title"], "'=HYPERLINK(\"x\")")
+        equal("+ is escaped", cells["trim"], "'+cmd")
+        equal("@ is escaped", cells["seller_name"], "'@SUM(A1)")
+        equal("- on text is escaped", cells["description"], "'-minus")
+        equal("a joined list is escaped AFTER joining", cells["features"], "'=evil | ok")
+        equal("a negative NUMBER is left a number", cells["mileage"], "-5")
+        data = json.load(open(out + ".json", encoding="utf-8"))[0]
+        equal("JSON keeps the site's bytes", data["title"], "=HYPERLINK(\"x\")")
+        meta = json.load(open(out + ".meta.json", encoding="utf-8"))
+        equal("the sidecar counts the escaped cells", meta.get("csv_cells_escaped"), 5)
+        W.finish_run([row], out, "csv", False, blocked=False, stop_reason="completed",
+                     pages_requested=1, pages_completed=1, start_url="u",
+                     final_url="u", mode="vehicle", extra={"csv_cells_escaped": "caller"})
+        meta = json.load(open(out + ".meta.json", encoding="utf-8"))
+        equal("...merged UNDER the caller's extra", meta.get("csv_cells_escaped"), "caller")
+
+
+def _cli(argv, env=None):
+    """Parse `argv` through the shared CLI; return (args, None) or (None, the error)."""
+    import cli
+    p = argparse.ArgumentParser(prog="t")
+    cli.add_search_args(p)
+    cli.add_common_args(p)
+    errors = []
+
+    def error(msg):
+        errors.append(msg)
+        raise SystemExit(2)
+    p.error = error
+    before = dict(os.environ)
+    os.environ.pop("AUTOTRADER_URL", None)
+    os.environ.update(env or {})
+    try:
+        args = cli.finish_args(p, p.parse_args(argv))
+        return args, None
+    except SystemExit:
+        return None, (errors[0] if errors else "argparse")
+    finally:
+        os.environ.clear()
+        os.environ.update(before)
+
+
+def check_an_environment_url_does_not_block_the_search_flags():
+    env = {"AUTOTRADER_URL": SEARCH}
+    args, why = _cli(["--make", "ford", "--model", "f150", "--zip", "90012"], env)
+    check("AUTOTRADER_URL plus --make/--model/--zip builds the flags' search",
+          args is not None and "/ford/f150" in args.query.url, why or "")
+    args, why = _cli(["--vehicle-id", "787910153"], env)
+    check("...and plus --vehicle-id runs vehicle mode", args is not None
+          and args.query.mode == "vehicle", why or "")
+    args, why = _cli([], env)
+    check("AUTOTRADER_URL alone is still the search",
+          args is not None and args.query.url.startswith(SEARCH), why or "")
+    args, why = _cli(["--url", SEARCH, "--make", "ford"], env)
+    check("a TYPED --url with --make is still refused", args is None and "--make" in why, why or "")
+
+
+def check_numeric_flags_refuse_values_that_mean_nothing():
+    for argv, flag in ((["--delay", "-1"], "--delay"),
+                       (["--retry-delay", "-0.5"], "--retry-delay"),
+                       (["--concurrency", "0"], "--concurrency"),
+                       (["--proxy-block-retries", "-1"], "--proxy-block-retries"),
+                       (["--retries", "-1"], "--retries"),
+                       (["--pages", "0"], "--pages")):
+        args, why = _cli(["--url", SEARCH] + argv)
+        check("%s is refused, naming the flag" % " ".join(argv),
+              args is None and flag in (why or ""), repr(why))
+    args, why = _cli(["--url", SEARCH, "--delay", "0", "--proxy-block-retries", "0"])
+    check("0 delay and 0 block retries are legal", args is not None, repr(why))
+
+
+def _served_unreadable():
+    """A document the site served (its own assets) holding no store at all."""
+    assets = "".join('<script src="/cars-for-sale/_next/static/chunks/%d.js"></script>' % i
+                     for i in range(5))
+    return ("<!DOCTYPE html><html><head><title>Used Toyota Camry for Sale - Autotrader"
+            "</title>%s</head><body><div id=\"app\">results</div></body></html>" % assets)
+
+
+def check_a_served_page_the_parser_cannot_read_is_a_parser_failure():
+    import page_flow as F
+    import product_parser as P
+    doc = _served_unreadable()
+    equal("a served site page with no readable store is `unreadable`",
+          P.detect_page_state(doc, 200, SEARCH, "listing"), "unreadable")
+    equal("...in vehicle mode too", P.detect_page_state(doc, 200, SEARCH, "vehicle"), "unreadable")
+    for name in ("refused_unavailable", "refused_over_cdp"):
+        check("%s carries none of the site's assets" % name, not P.served_by_site(fx(name)))
+    check("an empty document is not the site's", not P.served_by_site("<html><body></body></html>"))
+    check("unreadable: not retried, not solved, not blocked, not parsed",
+          not any((F.should_retry("unreadable"), F.should_solve("unreadable"),
+                   F.counts_as_blocked("unreadable"), F.should_parse("unreadable"))))
+    rc, meta, rows, ops = _run({SEARCH: [(200, doc, None)]}, _q())
+    equal("a run whose page 1 is unreadable: exit 5 (nothing obtained), not 4", rc, 5)
+    equal("...ONE navigation, not --retries of them", len(ops.gotos), 1)
+    rc, meta, rows, ops = _run({SEARCH: [(200, fx("srp_camry_p1"), None)],
+                                SEARCH + "?page=2": [(200, doc, None)]}, _q(), pages=2)
+    equal("rows, then an unreadable page: exit 6", rc, 6)
+    equal("...partial, stopped as a parser failure",
+          (meta or {}).get("status"), "partial")
+    equal("...with stop_reason parser_found_nothing",
+          (meta or {}).get("stop_reason"), "parser_found_nothing")
+
+
+def check_a_secret_scan_outside_git_does_not_report_ok():
+    script = os.path.join(HERE, ".github", "ci_checks.py")
+    if not os.path.isdir(os.path.join(HERE, ".github")):
+        skip("ci_checks", "no .github directory (the image)")
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, ".github"))
+        with open(script, encoding="utf-8") as src, \
+                open(os.path.join(tmp, ".github", "ci_checks.py"), "w", encoding="utf-8") as dst:
+            dst.write(src.read())
+        with open(os.path.join(tmp, "notes.txt"), "w", encoding="utf-8") as f:
+            f.write("key = %s\n" % ("ab" * 16))
+        env = dict(os.environ, GIT_CEILING_DIRECTORIES=os.path.dirname(tmp))
+        result = subprocess.run([sys.executable, os.path.join(".github", "ci_checks.py"),
+                                 "--secret-check"], cwd=tmp, capture_output=True,
+                                text=True, env=env)
+        out = result.stdout + result.stderr
+        check("outside a git checkout the scan does not print ok", "\nok " not in "\n" + out
+              and "files scanned, nothing" not in out, out[-400:])
+        check("...it says it SKIPPED and why", "SKIP" in out and "not a git checkout" in out,
+              out[-400:])
+
+
+# Tokens that cite a private instruction file. Assembled from pieces so this
+# file does not match its own guard.
+_PRIVATE_CITATIONS = (
+    "CLAUDE" + ".md", "claude" + "_2scraper", "2scraper" + "_repo_rules",
+    "family" + " notes",
+)
+_SECTION_SIGN = chr(0xA7)  # the section sign, spelled so it is not one
+
+
+def check_no_public_file_cites_a_private_instruction_file():
+    result = subprocess.run(["git", "ls-files"], cwd=HERE, capture_output=True, text=True)
+    if result.returncode != 0:
+        skip("citations", "not a git repository")
+        return
+    files = [f for f in result.stdout.splitlines()
+             if f != "fixtures_generated.json" and os.path.isfile(os.path.join(HERE, f))]
+    check("the citation scan reads files (not vacuous)", len(files) > 20, str(len(files)))
+    hits = []
+    for rel in files:
+        try:
+            text = open(os.path.join(HERE, rel), encoding="utf-8").read()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if _SECTION_SIGN in line or any(t in line for t in _PRIVATE_CITATIONS):
+                hits.append("%s:%d" % (rel, lineno))
+    check("no shipped file cites a private instruction file or a section of one",
+          not hits, ", ".join(hits[:10]))
 
 
 _TREE_BEFORE = None

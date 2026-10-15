@@ -99,8 +99,8 @@ class CaptchaChallenge:
     page_url: str = ""
     # AWS WAF only. Its task needs three values that all live together in
     # `window.gokuProps` on the challenge page, plus the two script URLs the
-    # page loads. Unlike Cloudflare Turnstile (§19 of the family notes),
-    # nothing has to be intercepted at runtime to get them: AWS WAF prints
+    # page loads. Unlike Cloudflare Turnstile, whose parameters exist only
+    # inside one runtime call, nothing has to be intercepted at runtime to get them: AWS WAF prints
     # all of it into the served HTML, so a static read is enough.
     iv: Optional[str] = None
     context: Optional[str] = None
@@ -151,7 +151,7 @@ class CaptchaChallenge:
     def has_captcha_widget(self) -> bool:
         """Is there a widget on this page for a solver to work on?
 
-        Section 19's rule: "unsolvable" is a property of a PAGE, not of a
+        "Unsolvable" is a property of a PAGE, not of a
         vendor, and it means the page carries no widget. A challenge-action
         page carries none, so sending it to a solver buys a token for a
         puzzle that was never rendered -- measured at $0.00145 a time, since
@@ -848,8 +848,8 @@ def solve_recaptcha(challenge: CaptchaChallenge, twocaptcha_api_key: Optional[st
                      proxy: Optional[str] = None) -> str:
     """Public entry point: solve `challenge` through 2captcha and return the token.
 
-    There used to be a `use_antidetect` branch here, behind a CLI flag of the
-    same name, that POSTed to a hardcoded local "solve-captcha" endpoint.
+    There used to be a second branch here, behind its own CLI flag, that
+    POSTed to a hardcoded local "solve-captcha" endpoint.
     It was removed before publishing: that endpoint was a placeholder for a
     product that does not exist under that name, so the flag could not work for
     anyone who set it, and the real "the browser solves it for you" path is

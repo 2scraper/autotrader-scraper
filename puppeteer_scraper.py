@@ -47,7 +47,7 @@ from typing import Optional
 # At module level, deliberately, and not inside the launch path. The offline
 # suite guards `import puppeteer_scraper` behind try/except ImportError and
 # REPORTS the skip, and CI's engine-smoke job imports it by name. That only
-# works if importing this module actually requires the driver (CLAUDE.md §10).
+# works if importing this module actually requires the driver.
 from pyppeteer import launch, connect
 from pyppeteer.errors import BrowserError
 
@@ -64,11 +64,11 @@ logger = logging.getLogger("puppeteer_scraper")
 
 # Every await in this file goes through the bridge below with a timeout, so a
 # hung remote call ends the operation instead of the run. pyppeteer provides
-# no connect timeout of its own (§8).
+# no connect timeout of its own.
 DEFAULT_OP_TIMEOUT = 120
 CONNECT_TIMEOUT = 30
 
-# Chromium's own names for a proxy that could not be used (§8).
+# Chromium's own names for a proxy that could not be used.
 _PROXY_ERROR_MARKERS = (
     "ERR_PROXY_CONNECTION_FAILED",
     "ERR_TUNNEL_CONNECTION_FAILED",
@@ -148,7 +148,7 @@ class _AsyncBridge:
         self._thread.join(timeout=5)
 
 
-# Every `scheme://user:pass@` in a string, however many times it occurs (§8).
+# Every `scheme://user:pass@` in a string, however many times it occurs.
 _CREDENTIALS_IN_URL_RE = re.compile(r"([a-z][a-z0-9+.\-]*://)[^\s/@]+:[^\s/@]+@",
                                     re.IGNORECASE)
 
@@ -170,7 +170,7 @@ class _Ops:
     """One pyppeteer browser + page, exposed as page_flow's named operations.
 
     Same contract as playwright_scraper._Ops, including the rule that a
-    rotation means a genuinely FRESH browser (§8).
+    rotation means a genuinely FRESH browser.
     """
 
     def __init__(self, bridge: _AsyncBridge, args, pool):
@@ -228,7 +228,7 @@ class _Ops:
             exit_url = self.pool.current
             # Credentials go through page.authenticate(), never onto the
             # command line: --proxy-server= is part of the browser's argv,
-            # readable by anything that can run `ps` (§8).
+            # readable by anything that can run `ps`.
             scrubbed, credentials = split_credentials(exit_url)
             launch_args.append(f"--proxy-server={scrubbed}")
             logger.info("Using proxy exit %s", mask(exit_url))
@@ -244,7 +244,7 @@ class _Ops:
         # No User-Agent override (the donor set one). A sibling site behind
         # the same vendor served page 1 to a pyppeteer UA override and then
         # denied pages 2-4 of the same session, while the unmodified browser
-        # was served 4 of 4 (§24). The browser's own UA is left alone.
+        # was served 4 of 4. The browser's own UA is left alone.
         if self.args.fingerprint:
             self._apply_fingerprint()
         if credentials:
@@ -265,7 +265,7 @@ class _Ops:
 
         Every request is paused and continued unchanged; only an auth
         challenge is answered, and only with the proxy's credentials, which
-        never leave this process's memory (§8).
+        never leave this process's memory.
         """
         async def _enable():
             session = await self.page.target.createCDPSession()
@@ -298,7 +298,7 @@ class _Ops:
         async def _enable():
             # One coroutine for both calls: pyppeteer's CDPSession.send
             # returns a Future rather than a coroutine, and the bridge's
-            # run_coroutine_threadsafe accepts only the latter (§26).
+            # run_coroutine_threadsafe accepts only the latter.
             session = await self.page.target.createCDPSession()
             await session.send("Captcha.setAutoSolve",
                                {"autoSolve": True, "options": [{"type": "*"}]})
@@ -410,7 +410,7 @@ def handle_captcha_if_present(ops, args) -> bool:
         token = solve_recaptcha(challenge, args.twocaptcha_key,
                                 api_version=args.captcha_api,
                                 min_score=args.min_score)
-    except Exception as e:  # noqa: BLE001 — a solver error is a warning (§8)
+    except Exception as e:  # noqa: BLE001 — a solver error is a warning
         logger.error("Solving the reCAPTCHA failed (%s) — continuing.",
                      _mask_credentials(str(e)))
         return False

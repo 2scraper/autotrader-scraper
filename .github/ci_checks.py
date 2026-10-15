@@ -93,7 +93,7 @@ HEX32 = re.compile(r"\b[0-9a-f]{32}\b")
 # The exemption is that exact host, path and extension, and nothing else. A
 # bare 32-hex anywhere else still fails, including in the same file on
 # another line (smoke_test plants one to prove it). The value was kept
-# rather than removed (§24 prefers removal) because `image_url` is a real
+# rather than removed (removal is usually preferred) because `image_url` is a real
 # column: the one photo a results page carries.
 #
 # Checked rather than assumed: the listing ids, VINs, stock numbers and
@@ -268,11 +268,22 @@ CAPTURE_SHAPES = (
 )
 
 
+class NotAGitCheckout(Exception):
+    """`git ls-files` could not list this tree (a "Download ZIP" or a
+    `git archive` extract, or no git at all)."""
+
+
 def _git_files(*flags):
-    out = subprocess.run(["git", "ls-files", "-z", *flags], cwd=REPO,
-                         capture_output=True, text=True)
+    try:
+        out = subprocess.run(["git", "ls-files", "-z", *flags], cwd=REPO,
+                             capture_output=True, text=True)
+    except OSError as e:
+        raise NotAGitCheckout(str(e))
     if out.returncode != 0:
-        return
+        # Raised, not swallowed. Returning nothing here made the scan print
+        # "ok 0 files scanned, nothing credential-shaped" in a tree it had
+        # never read, which is a pass for the wrong reason.
+        raise NotAGitCheckout((out.stderr or "").strip()[:200])
     for rel in out.stdout.split("\0"):
         if rel:
             yield REPO / rel
@@ -292,7 +303,7 @@ def tracked_files():
 # into pip's vendored code and flags a 32-hex string in `_elffile.py` as
 # key-shaped. Correct about the string, wrong about the file — and it is the
 # FIRST thing a new user sees from `python3 smoke_test.py`. A guard people
-# have to argue with is one they learn to suppress (CLAUDE.md §22).
+# have to argue with is one they learn to suppress.
 #
 # Deliberately NOT a narrowing of what gets scanned: an untracked file is
 # still read, because a key pasted into a scratch file beside the scripts is
@@ -422,7 +433,17 @@ def sample_check():
 def secret_check():
     failed = []
     scanned = 0
-    for path in scanned_files():
+    try:
+        candidates = list(scanned_files())
+    except NotAGitCheckout as e:
+        # Outside a git checkout there is no way to tell a developer's own
+        # ignored `.env` from a file that would be committed, so the scan is
+        # SKIPPED and says so, rather than reporting a clean result about
+        # files it never opened.
+        print(f"SKIP     not a git checkout, so nothing was scanned ({e or 'git ls-files failed'}). "
+              f"Run this from a clone.")
+        return []
+    for path in candidates:
         scanned += 1
         for lineno, line in enumerate(
                 path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
@@ -469,6 +490,9 @@ def secret_check():
                           f"make_fixtures.py, which scrubs them and proves "
                           f"the trim parses identically.")
 
+    if not scanned:
+        failed.append("0 files were scanned in a git checkout: the scan read "
+                      "nothing, so it cannot say the tree is clean")
     if not failed:
         print(f"ok       {scanned} files scanned, nothing credential-shaped, "
               f"no raw capture tracked")
