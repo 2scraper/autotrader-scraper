@@ -9,6 +9,8 @@ said so at the top of its release notes.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-10-07
+
 > **The listing mode works again.** From 2026-10-13 autotrader.com's results
 > page no longer carries `__NEXT_DATA__`: it is a Next.js App Router page
 > with the same records inside its `self.__next_f` flight chunks. 0.1.0
@@ -16,8 +18,35 @@ said so at the top of its release notes.
 > exited 5 ("the pages never arrived"); the daily canary was red on
 > 2026-10-13 and 2026-10-14 for that reason.
 
+Also in this release: fixes from a third-party audit of 0.1.0, each reproduced before it was
+changed.
+
+> **Behaviour change for `scraper_api_client.py --retries`.** It used to
+> count EXTRA attempts (default 1 = two tries) while the browser engines'
+> `--retries` counted ATTEMPTS (default 3 = three tries). It now counts
+> attempts everywhere, so the client's default of 1 is one try. A refused
+> page is still re-fetched once, so the most a refused page costs is
+> unchanged: two tasks. And `--retries 0` is now refused (exit 2) in every
+> engine, where it used to mean no attempt at all.
+
 ### Fixed
 
+- **`--retries 0` made no request and reported "the pages were never
+  obtained" (exit 5).** The page loop counts attempts. Reproduced offline:
+  0 navigations, exit 5. Now exit 2 with the reason.
+- **A moved page store read as an empty search, or as success.** Reproduced
+  on the real fixture by renaming one key each:
+  - `inventory` → exit 4, "the search matched nothing", beside the site's
+    own count of 558. Now `parser_found_nothing`: exit 5 on page 1, exit 6
+    (partial, page listed as failed) later on.
+  - `vin` → exit 0, VIN empty on every row, one warning in the log.
+  - `pricingDetail` → exit 0, every price empty, no warning at all.
+
+  The sidecar now carries `field_coverage` and `fields_below_floor`, the log
+  says it as an ERROR, and the canary FAILS on it. Floors: 99% for the
+  columns every captured record had, 25% for `price` (the emptiest page
+  measured was 64%, under price-desc and year-desc, where "Contact Dealer
+  For Price" listings sort first).
 - Results pages are read from the App Router flight payload when there is
   no `__NEXT_DATA__`. The records are the same (`inventory`, `owners`), so
   every column is read as before; `data_source` is `next_flight` on those
@@ -28,11 +57,46 @@ said so at the top of its release notes.
   a served results page no longer carries; it now waits for the site's own
   asset path, `/cars-for-sale/_next/static/`.
 
+### Changed
+
+- **The Scraper API client runs the shared page loop** instead of its own
+  copy of the pagination, the status triage and the sidecar. It now gets
+  the widened-search check, the served-page check, `gone`, and the same
+  sidecar as the browser engines. It does not poll an unknown document for
+  repaints, since nothing can repaint it.
+- **The sidecar says how the pages were fetched** (`fetch`: engine, headful
+  or not, CDP or not, the proxy's host and port without credentials).
+
+### Measured
+
+- Scraper API, its own exits: refused 1 of 1 on 2026-09-24; on 2026-10-07,
+  served 1 of 4 (25 rows) and answered HTTP 408 to the other 3 (sync wait
+  exceeded, not billed).
+- The canary since the proxy secret was set: 11 of 12 green, the red one
+  three navigation timeouts at the exit.
+
 ### Not verified
 
 - Vehicle (detail) pages: no capture in the new shape exists yet. If a
   detail page has moved too, it reads as `unknown` (exit 5), never as a
   gone listing.
+
+### Not changed, and why
+
+- **A preflight health check before the run** — page 1 already is that
+  probe: it is fetched alone, a refusal stops the run after one fresh-browser
+  retry, and nothing else is fetched.
+- **Lock files / upper bounds** — the daily canary installs current
+  releases and is the test of them; pinning would switch that off.
+- **Checkpoint / resume, JSONL sinks, a package layout** — family-wide
+  product decisions (a shared sink interface is still pending),
+  not something to grow in one repo. A run that fails after gathering rows
+  already writes them (exit 6).
+- **A JSON-LD or DOM fallback parser** — the JSON-LD on a results page
+  describes three paid placements, not the results, and the DOM is built
+  from the same store; a fallback would return the wrong cars confidently.
+- **Adapters for, or a benchmark against, other vendors' scraping APIs** —
+  out of scope for this family, which integrates 2Captcha's products only.
 
 ## [0.1.0] — 2026-09-24
 

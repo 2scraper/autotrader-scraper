@@ -729,6 +729,152 @@ def check_vehicle_mode_end_to_end():
     equal("every vehicle gone: exit 4 (answered, and the answer is nothing)", rc, 4)
 
 
+def check_retries_zero_is_refused_not_silently_skipped():
+    """Audit 2026-10-07: the loop counts ATTEMPTS, so --retries 0 made no
+    navigation at all and reported exit 5 for a request never sent."""
+    import cli
+    p = argparse.ArgumentParser()
+    cli.add_search_args(p)
+    cli.add_common_args(p)
+    p.error = _err
+    for value, refused in (("0", True), ("-1", True), ("1", False)):
+        try:
+            cli.finish_args(p, p.parse_args(["--url", SEARCH, "--retries", value]))
+            got = False
+        except _Refused:
+            got = True
+        equal("--retries %s is %s" % (value, "refused" if refused else "accepted"),
+              got, refused)
+    rc, meta, rows, ops = _run({SEARCH: [(200, fx("srp_camry_p1"), None)]}, _q(),
+                               pages=1, retries=1)
+    equal("--retries 1 is ONE attempt, and it is made", (rc, len(ops.gotos)), (0, 1))
+    try:
+        import scraper_api_client as sac
+    except ImportError:
+        return
+    real = sys.argv
+    sys.argv = ["scraper_api_client.py", "--url", SEARCH, "--retries", "0", "--key", "k" * 8]
+    try:
+        sac.parse_args()
+        refused = False
+    except SystemExit as e:
+        refused = e.code == 2
+    finally:
+        sys.argv = real
+    check("the Scraper API client refuses --retries 0 too (one meaning per repo)", refused)
+
+
+def check_a_moved_store_is_never_reported_as_an_empty_search():
+    """Measured here 2026-10-07 on the real fixture: a renamed
+    `inventory` was exit 4, "the search matched nothing", beside the site's
+    own count of 558; a renamed `vin` or `pricingDetail` was exit 0,
+    complete, with that column empty on every row."""
+    p1, p2 = fx("srp_camry_p1"), fx("srp_camry_p2")
+    rc, meta, rows, ops = _run({SEARCH: [(200, p1.replace('"inventory"', '"inventoryV2"'), None)]},
+                               _q(), pages=1)
+    equal("records gone from page 1: exit 5 (not 4), nothing written", (rc, rows), (5, None))
+    answers = {SEARCH: [(200, p1, None)],
+               SEARCH + "?page=2": [(200, p2.replace('"inventory"', '"inventoryV2"'), None)]}
+    rc, meta, rows, ops = _run(answers, _q(), pages=2)
+    equal("...from page 2: exit 6, partial", (rc, meta and meta["status"]), (6, "partial"))
+    equal("...named by its own stop reason", meta and meta["stop_reason"], "parser_found_nothing")
+    equal("...and page 2 is listed as failed", meta and meta["pages_failed"], [2])
+    for field_name, old, new in (("vin", '"vin"', '"vehicleVin"'),
+                                 ("price", '"pricingDetail"', '"pricing"')):
+        rc, meta, rows, ops = _run({SEARCH: [(200, p1.replace(old, new), None)]}, _q(), pages=1)
+        equal("a renamed %s: the sidecar names the column" % field_name,
+              meta and meta["fields_below_floor"], [field_name])
+        check("...with its coverage", meta and meta["field_coverage"].get(field_name) == 0.0)
+    rc, meta, rows, ops = _run({SEARCH: [(200, p1, None)]}, _q(), pages=1)
+    equal("a clean page: no column below its floor", meta and meta["fields_below_floor"], [])
+    equal("...and no listed result without a record", meta and meta["results_without_record"], 0)
+    src = open(os.path.join(HERE, ".github", "workflows", "canary.yml"), encoding="utf-8").read() \
+        if os.path.isdir(os.path.join(HERE, ".github")) else None
+    if src is not None:
+        check("the canary FAILS on a column below its floor, not only logs it",
+              'meta.get("fields_below_floor")' in src)
+    import page_flow as F
+    check("the price floor sits below the emptiest page measured (64%) and above 0",
+          0 < F.PRICE_FIELD_FLOOR < 64)
+
+
+def check_the_sidecar_says_how_the_pages_were_fetched_without_a_credential():
+    import page_flow as F
+    from proxy_pool import ProxyPool
+    args = types.SimpleNamespace(engine="playwright", headless=False, cdp_endpoint=None)
+    pool = ProxyPool(["http://user:secret@na.proxy.example:2334"], rotate="per-run")
+    summary = F.fetch_summary(args, pool)
+    equal("engine and mode are recorded", (summary["engine"], summary["headless"]),
+          ("playwright", False))
+    check("the exit's host and port are recorded", "na.proxy.example:2334" in summary["proxy"])
+    check("...and its password is not", ":secret@" not in json.dumps(summary))
+    args.cdp_endpoint = "ws://u:supersecret@cb.example:9222"
+    check("a CDP endpoint is recorded as a fact, never as its URL",
+          F.fetch_summary(args)["cdp_endpoint"] is True
+          and "supersecret" not in json.dumps(F.fetch_summary(args)))
+
+
+def check_the_scraper_api_client_runs_the_shared_loop():
+    """Audit 2026-10-07: the client carried its own pagination, triage and
+    sidecar. It now drives page_flow like the browser engines, through the
+    Scraper API stubbed here (no network)."""
+    try:
+        import scraper_api_client as sac
+    except ImportError as e:
+        skip("scraper_api_client", str(e))
+        return
+    src = _src("scraper_api_client")
+    check("the client calls page_flow.run_pages", "page_flow.run_pages(" in src)
+    check("...and no longer calls finish_run itself", "finish_run(" not in src)
+    served = {"count": 0, "sleeps": 0}
+
+    def run(bodies, argv):
+        class Resp:
+            status_code = 200
+            headers = {}
+            text = ""
+
+            def __init__(self, body):
+                self.body = body
+
+            def json(self):
+                return {"status": "success", "http_code": 200, "body": self.body}
+
+        def post(url, **kw):
+            served["count"] += 1
+            return Resp(bodies.pop(0) if len(bodies) > 1 else bodies[0])
+
+        real_post, real_argv, real_sleep = sac.requests.post, sys.argv, sac.time.sleep
+        with tempfile.TemporaryDirectory() as tmp:
+            sys.argv = ["scraper_api_client.py", "--key", "k" * 8, "--out",
+                        os.path.join(tmp, "o"), "--format", "json", "--delay", "0"] + argv
+            sac.requests.post = post
+            sac.time.sleep = lambda s: served.__setitem__("sleeps", served["sleeps"] + 1)
+            served["count"] = served["sleeps"] = 0
+            try:
+                rc = sac.main()
+            finally:
+                sac.requests.post, sys.argv, sac.time.sleep = real_post, real_argv, real_sleep
+            meta = (json.load(open(os.path.join(tmp, "o.meta.json")))
+                    if os.path.exists(os.path.join(tmp, "o.meta.json")) else None)
+        return rc, meta, served["count"]
+
+    rc, meta, tasks = run([fx("srp_camry_p1")], ["--url", SEARCH])
+    equal("a served page through the API: exit 0, one task", (rc, tasks), (0, 1))
+    equal("...the same sidecar as the browser engines", meta and meta["fetch"]["engine"],
+          "scraper_api")
+    rc, meta, tasks = run([fx("refused_unavailable")], ["--url", SEARCH])
+    equal("a refusal: exit 3, and ONE more task (the loop's block retry), no more",
+          (rc, tasks), (3, 2))
+    rc, meta, tasks = run(["<html><body>nothing</body></html>"], ["--url", SEARCH])
+    equal("an unknown page with --retries 1: exit 5 after one task", (rc, tasks), (5, 1))
+    # Counted, not read off an attribute: a browser engine polls an unknown
+    # document for READY_WAIT_MS; nothing can repaint the API's, so the
+    # loop must not pause on it at all (so the event is asserted).
+    equal("...and the loop did not pause to poll a document nothing can repaint",
+          served["sleeps"], 0)
+
+
 def check_every_engine_implements_the_operations_page_flow_uses():
     """The loop is shared, so an engine missing ONE operation fails only when
     a live run reaches it. The set is DERIVED from page_flow's own source."""
@@ -742,7 +888,7 @@ def check_every_engine_implements_the_operations_page_flow_uses():
     check("...and the fake driver this suite uses implements every one",
           all(hasattr(_FakeOps(), name) for name in used),
           repr(sorted(n for n in used if not hasattr(_FakeOps(), n))))
-    for module in ENGINES:
+    for module in ENGINES + ("scraper_api_client",):
         tree = ast.parse(_src(module))
         ops_cls = next((n for n in tree.body
                         if isinstance(n, ast.ClassDef) and n.name == "_Ops"), None)

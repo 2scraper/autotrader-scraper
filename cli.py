@@ -107,8 +107,10 @@ def add_common_args(p, out_default="autotrader_rows"):
                         "Each worker runs its own headful browser and holds "
                         "its own proxy exit. Ignored with --cdp-endpoint.")
     p.add_argument("--retries", type=int, default=3,
-                   help="Attempts per page on a transport failure (default 3). "
-                        "The pause doubles each time.")
+                   help="ATTEMPTS per page, the first one included (default "
+                        "3), so 1 means no retry. The pause between them "
+                        "doubles. 0 is refused: it used to mean no attempt "
+                        "at all, reported as a timeout.")
     p.add_argument("--retry-delay", type=float, default=3.0,
                    help="Seconds before the first retry, doubling thereafter.")
     p.add_argument("--format", choices=["json", "csv", "both"], default="both")
@@ -173,9 +175,19 @@ def add_common_args(p, out_default="autotrader_rows"):
                         "display; use xvfb-run on a server.")
 
 
-def finish_args(p, args):
-    """Everything after parsing that the three engines do identically."""
+def finish_args(p, args, engine: Optional[str] = None):
+    """Everything after parsing that the three engines do identically.
+    `engine` is recorded in the sidecar, so a refused run says what fetched it."""
     env_config.apply(args)
+    args.engine = engine
+    if args.retries < 1:
+        # Found by an audit, 2026-10-07: the page loop counts ATTEMPTS, so
+        # --retries 0 made no navigation at all and the run reported exit 5,
+        # "the pages were never obtained", for a request it never sent. The
+        # flag keeps the family's meaning (attempts, as in every sibling);
+        # the impossible value is refused instead of reinterpreted.
+        p.error("--retries is the number of ATTEMPTS per page, the first one "
+                "included, so it must be at least 1 (1 = try once, no retry).")
     if args.category is not None:
         p.error("--category is not a separate option on autotrader.com: a body "
                 "style is part of the search URL itself (e.g. "

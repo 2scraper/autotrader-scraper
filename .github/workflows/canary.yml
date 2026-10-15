@@ -14,6 +14,11 @@
 #
 #     gh secret set AUTOTRADER_PROXY --repo 2scraper/autotrader-scraper
 #
+# Set since 2026-09-25. From its own history: 11 of 12 runs green to
+# 2026-10-06, all through the secret (none skipped); the red one, 2026-10-04,
+# was three 60 s navigation timeouts at the exit (exit 5) — the exit, not
+# the site, as the next morning's green run showed.
+#
 # It goes through the ENVIRONMENT, not a --proxy line: env_config.py reads
 # exactly that variable, an unset secret arrives as an empty string which the
 # loader treats as unset, and the credential never reaches a command line.
@@ -114,6 +119,14 @@ jobs:
               problems.append("currency %r" % {r["currency"] for r in rows})
           if sum(1 for r in rows if r["vin"]) < len(rows):
               problems.append("a row without a VIN")
+          # A moved store still exits 0 with columns empty; the sidecar names
+          # them, and this is where that turns red rather than into a log line.
+          if meta.get("fields_below_floor"):
+              problems.append("columns below their floor: %r (coverage %r)"
+                              % (meta["fields_below_floor"], meta.get("field_coverage")))
+          if meta.get("results_without_record"):
+              problems.append("%d listed result(s) had no record"
+                              % meta["results_without_record"])
           if {r["condition"] for r in rows} - {"USED", "CERTIFIED"}:
               problems.append("a used-cars search returned %r" % {r["condition"] for r in rows})
           if problems:
@@ -136,6 +149,9 @@ jobs:
               sys.exit("vehicle canary FAILED: %r" % meta)
           if any(not r["features"] for r in rows):
               sys.exit("vehicle canary FAILED: a detail row without features")
+          if meta.get("fields_below_floor"):
+              sys.exit("vehicle canary FAILED: columns below their floor: %r"
+                       % meta["fields_below_floor"])
           print("vehicle canary OK: %d rows, %d gone" % (len(rows), len(meta["vehicles_gone"])))
           EOF
 
