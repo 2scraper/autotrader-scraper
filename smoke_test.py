@@ -81,7 +81,7 @@ DRIVER_IMPORTS = {"playwright_scraper": "playwright",
                   "puppeteer_scraper": "pyppeteer"}
 SERVED = ("srp_camry_p1", "srp_camry_p2", "srp_camry_past_end", "srp_price_desc",
           "srp_new_crv", "srp_by_owner", "srp_widened_ford", "srp_zero",
-          "vdp_camry", "vdp_gone")
+          "vdp_camry", "vdp_gone", "srp_flight_camry")
 
 
 def _import_engine(name):
@@ -243,6 +243,61 @@ def check_the_json_ld_is_a_decoy_and_placements_are_not_rows():
         m.group(1) for m in P._LD_RE.finditer(doc)))
     check("the JSON-LD's own car is not one of the rows",
           ld_urls and not (set(ld_urls) & skus), repr(ld_urls))
+
+
+def check_the_app_router_results_page_parses_to_the_captured_values():
+    """Since 2026-10-13 the results page has no __NEXT_DATA__: the store is
+    in `self.__next_f` flight chunks. Cut from the canary's own capture of
+    2026-10-14, split across two chunks with a raw-text row, and asserted on
+    VALUES."""
+    import product_parser as P
+    doc = fx("srp_flight_camry")
+    check("the fixture has no __NEXT_DATA__ (not vacuous)",
+          "__NEXT_DATA__" not in doc and "self.__next_f.push([1," in doc)
+    rows = _listing("srp_flight_camry")
+    equal("four organic results, in page order", [r.sku for r in rows],
+          ["793315056", "793330949", "792425540", "791592297"])
+    r = rows[2]
+    equal("title", r.title, "Used 2023 Toyota Camry TRD")
+    equal("vin", r.vin, "4T1KZ1AK2PU081828")
+    equal("price includes the dealer's fees", (r.price, r.price_before_fees, r.dealer_fees),
+          (36039, 35144, 895))
+    equal("kbb fair price", r.kbb_fair_price, 35590)
+    equal("deal rating", r.deal_rating, "Good")
+    equal("mileage", r.mileage, 19368)
+    equal("seller", r.seller_name, "CHRYSLER DODGE JEEP OF PARAMUS")
+    equal("currency from the page's JSON-LD", r.currency, "USD")
+    equal("provenance names the payload", {x.data_source for x in rows}, {"next_flight"})
+    equal("positions", [x.position for x in rows], [1, 2, 3, 4])
+    f = P.page_facts(doc)
+    equal("the site's own count", f.total_results, 410)
+    equal("...its page count", f.pages_available, 12)
+    equal("...the page it served", f.served_page, 1)
+    equal("...and the search it ran", (f.site_query.get("makeCode"), f.site_query.get("modelCode"),
+                                       f.site_query.get("zip")), ("TOYOTA", "CAMRY", "10065"))
+    check("the placement is in the inventory and is not a row",
+          "791117378" in P.store(doc)["inventory"] and "791117378" not in {x.sku for x in rows})
+    inv = P.store(doc)["inventory"]
+    equal("a `$<row>:props:...` reference resolves to the record it names",
+          inv["788754358"]["phone"], inv["787925486"]["phone"])
+    check("...and no `$` reference survives into the store",
+          "$undefined" not in json.dumps(P.store(doc)) and '"$6:' not in json.dumps(P.store(doc)))
+    equal("a flight results page on a DETAIL url is not taken as `gone`",
+          P.detect_page_state(doc, 200, "https://www.autotrader.com/cars-for-sale/vehicle/1234567",
+                              "vehicle"), "unknown")
+
+
+def check_flight_references_resolve():
+    import product_parser as P
+    text = ('0:{"a":"$$22,363","b":"$undefined","c":"$1:props:x:0","d":"$1:props:x:9"}\n'
+            '2:T%x,%s' % (len("é\nline".encode("utf-8")), "é\nline")
+            + '1:["$","div",null,{"x":["ok"]}]\n')
+    flight = P._Flight(P._flight_rows(text))
+    equal("a T row's length is in UTF-8 bytes, and the rows after it are read",
+          sorted(flight.rows), ["0", "1"])
+    got = flight.resolve(flight.row("0"))
+    equal("$$ is a literal dollar, $undefined is null, a path follows props",
+          got, {"a": "$22,363", "b": None, "c": "ok", "d": None})
 
 
 def check_a_detail_page_parses_and_agrees_with_its_listing_row():
@@ -1412,7 +1467,9 @@ def check_scraper_api_sends_waitfor_as_an_object_and_reads_http_code():
     equal("--wait-text sends waitFor as an OBJECT", sent.get("waitFor"), {"text": "__NEXT_DATA__"})
     equal("the target status handed onward is http_code", status, 200)
     check("the default wait is a string only a SERVED page carries",
-          '"__NEXT_DATA__"' in _src("scraper_api_client"))
+          '"/cars-for-sale/_next/static/"' in _src("scraper_api_client"))
+    check("...and not __NEXT_DATA__, which the results page no longer carries",
+          'args.wait_text = "__NEXT_DATA__"' not in _src("scraper_api_client"))
 
 
 def check_x_debug_header_is_redacted():

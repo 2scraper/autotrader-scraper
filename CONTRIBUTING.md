@@ -43,9 +43,14 @@ not the check caught it.
 autotrader.com changing its pages is the normal way this stops working, and
 it has its own issue template. The parser reads no markup and no JSON-LD
 (the JSON-LD on a results page describes three PAID placements, not the
-results): every row comes out of the page's own Next.js store,
-`__NEXT_DATA__` → `props.pageProps.__eggsState`. So there are four things
-that can break, and each is loud or guarded:
+results): every row comes out of the page's own Next.js store. It reaches
+the page two ways: `__NEXT_DATA__` → `props.pageProps.__eggsState` (detail
+pages, and results pages until 2026-10-12), or, on results pages since
+2026-10-13, the App Router flight chunks (`self.__next_f.push([1, "..."])`),
+whose `pageData` carries the same `inventory` and `owners` records.
+`product_parser.flight_data` maps the second onto the first, so the rest of
+the parser reads one shape. So there are four things that can break, and
+each is loud or guarded:
 
 1. **The store's slices.** `srp_results.activeResults` (the organic ids),
    `inventory` (one record per id), `owners`. A page whose store has no

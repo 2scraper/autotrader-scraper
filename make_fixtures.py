@@ -65,6 +65,10 @@ PLAN = {
     "srp_zero":           ("cap_zero.html", "srp", 0),
     "vdp_camry":          ("cap_vdp.html", "vdp", 1),
     "vdp_gone":           ("cap_gone.html", "srp", 1),   # a gone id's redirect
+    # The App Router results page the site has served since 2026-10-13: no
+    # __NEXT_DATA__, the store inside `self.__next_f` flight chunks. Cut
+    # from the canary's own capture of 2026-10-14 (2.4 MB, US residential).
+    "srp_flight_camry":   ("cap_flight.html", "flight", 4),
 }
 # Kept whole: 4.4 KB of static Akamai page, the same bytes for every URL,
 # carrying nothing about the request; and the same page as a Scraping
@@ -207,6 +211,84 @@ def build(doc, kind, keep):
                                 json.dumps(new_data)))
 
 
+_FLIGHT_ROW_ID = "6"
+
+
+def _flight_props(doc):
+    """The raw (unresolved) props object of the row holding `pageData`, and
+    that row's id, from a real App Router capture."""
+    rows = P._flight_rows(P._flight_text(doc))
+    for rid, raw in rows.items():
+        if '"pageData"' in raw and raw[:1] in "[{":
+            props = P._find_page_props(json.loads(raw))
+            if props is not None:
+                return rid, props
+    raise SystemExit("no pageData row in the capture")
+
+
+def build_flight(doc, keep):
+    """A minimal App Router document: the parts of `pageData` the parser
+    reads, as a flight payload split across two chunks, with a `T` row and
+    the original's `$` references kept where their target is kept.
+
+    Not copied: `initialContext` apart from its `query` (it carries the
+    requesting address as `clientIp`), `dataIsland` (the address again and a
+    session id), and every other row of the payload.
+    """
+    rid, props = _flight_props(doc)
+    pd = props["pageData"]
+    ids = [str(i) for i in pd["inventoryIds"][:keep]]
+    spot = [str(i) for i in pd.get("spotlightIds") or []]
+    extra = next((i for i in spot if i not in ids), None)
+    wanted = ids + ([extra] if extra else [])
+    inv = pd["inventory"]
+    # A record whose phone is a reference to another record's: keep the
+    # target too, so the reference resolves as it does on the real page.
+    # The page's inventory holds records that are neither results nor
+    # placements, and on the capture only those carry such a reference; the
+    # first one is kept (not a row) so the suite can resolve it.
+    ref = re.compile(r"^\$%s:props:pageData:inventory:(\d+):" % re.escape(rid))
+    referring = next((k for k, r in inv.items() if k not in wanted
+                      and isinstance(r, dict) and ref.match(str(r.get("phone", "")))), None)
+    if referring:
+        wanted.append(referring)
+    for i in list(wanted):
+        m = ref.match(str((inv.get(i) or {}).get("phone", "")))
+        if m and m.group(1) not in wanted:
+            wanted.append(m.group(1))
+    new_inv = {i: _scrub_record(inv[i]) for i in wanted if i in inv}
+    owners = pd.get("owners") or {}
+    owner_ids = {str(r.get("ownerId")) for r in new_inv.values()}
+    new_pd = {
+        "inventory": new_inv,
+        "owners": {o: _scrub_owner(owners[o]) for o in owner_ids if o in owners},
+        "inventoryIds": [int(i) for i in ids],
+        "spotlightIds": [int(i) for i in spot if i in wanted],
+        "boostListingIds": pd.get("boostListingIds") or [],
+        "totalResultCount": pd.get("totalResultCount"),
+        "currentPage": pd.get("currentPage"),
+        "paginationLinks": pd.get("paginationLinks"),
+        "sort": pd.get("sort"),
+    }
+    query = (props.get("initialContext") or {}).get("query") or {}
+    element = ["$", "$L37", None, {"initialContext": {"query": query}, "pageData": new_pd}]
+    note = "A raw text row, as the real payload carries:\nmore than one line."
+    flight = ("1:\"$Sreact.fragment\"\n"
+              "19:T%x,%s" % (len(note.encode("utf-8")), note)
+              + "%s:%s\n" % (rid, json.dumps(element, separators=(",", ":"))))
+    half = len(flight) // 2
+    pushes = "".join("<script>self.__next_f.push([1,%s])</script>" % json.dumps(part)
+                     for part in (flight[:half], flight[half:]))
+    assets = "".join('<script src="/cars-for-sale/_next/static/chunks/%s.js" async=""></script>' % n
+                     for n in ("webpack", "main-app", "page"))
+    ld = "".join('<script type="application/ld+json">%s</script>' % json.dumps(b)
+                 for b in _ld_blocks(doc))
+    title = re.search(r"<title[^>]*>(.*?)</title>", doc, re.S)
+    return ("<!DOCTYPE html><html><head><title>%s</title>%s%s</head><body>"
+            "<script>(self.__next_f=self.__next_f||[]).push([0])</script>%s"
+            "</body></html>" % (title.group(1).strip() if title else "", assets, ld, pushes))
+
+
 def _rows(doc, kind, first_ids):
     if kind == "vdp":
         return [asdict(r) for r in P.parse_vehicle(doc)]
@@ -218,13 +300,13 @@ def verify(name, original, fixture, kind, keep):
     """The fixture's rows equal the original's first `keep`, column by column,
     except the columns this file replaces on purpose."""
     fx_rows = _rows(fixture, kind, None) if kind == "vdp" else None
-    if kind == "srp":
+    if kind in ("srp", "flight"):
         fx_rows = [asdict(r) for r in P.parse_listing(fixture, P.Query(mode="listing"), 1)]
         ids = [r["sku"] for r in fx_rows]
         orig_rows = _rows(original, kind, set(ids))
     else:
         orig_rows = _rows(original, kind, None)
-    assert len(fx_rows) == len(orig_rows) == (keep if kind == "srp" else len(orig_rows)), \
+    assert len(fx_rows) == len(orig_rows) == (keep if kind in ("srp", "flight") else len(orig_rows)), \
         "%s: %d rows from the fixture, %d from the original" % (name, len(fx_rows), len(orig_rows))
     for a, b in zip(orig_rows, fx_rows):
         for col in a:
@@ -252,14 +334,24 @@ FORBIDDEN = (
 
 
 def main():
+    # `--only NAME ...` rebuilds those fixtures and keeps the rest of the
+    # committed corpus as it is, for when only some captures are at hand.
+    only = sys.argv[sys.argv.index("--only") + 1:] if "--only" in sys.argv else None
     out = {}
+    if only:
+        out = json.load(open(OUT, encoding="utf-8"))
     for name, (fname, kind, keep) in PLAN.items():
+        if only and name not in only:
+            continue
         original = open(os.path.join(CAPTURES, fname), encoding="utf-8").read()
-        fixture = build(original, kind, keep)
+        fixture = (build_flight(original, keep) if kind == "flight"
+                   else build(original, kind, keep))
         verify(name, original, fixture, kind, keep)
         out[name] = fixture
         print("  %-20s %8d -> %6d bytes, verified" % (name, len(original), len(fixture)))
     for name, fname in VERBATIM.items():
+        if only and name not in only:
+            continue
         out[name] = open(os.path.join(CAPTURES, fname), encoding="utf-8").read()
         print("  %-20s verbatim, %d bytes" % (name, len(out[name])))
     blob = json.dumps(out)
