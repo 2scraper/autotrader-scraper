@@ -9,6 +9,8 @@ said so at the top of its release notes.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-10-15
+
 > **Behaviour changes.**
 > - A results page the site **served** (built from its own assets, no
 >   refusal on it) that holds no store this parser can read is now reported
@@ -24,6 +26,24 @@ said so at the top of its release notes.
 > - `.env.example` no longer sets `AUTOTRADER_URL` (it is a commented-out
 >   example), and an `AUTOTRADER_URL` from the environment no longer blocks
 >   `--make/--model/--zip` or `--vehicle-id` typed on the command line.
+
+> **The listing mode works again.** From 2026-10-13 autotrader.com's results
+> page no longer carries `__NEXT_DATA__`: it is a Next.js App Router page
+> with the same records inside its `self.__next_f` flight chunks. 0.1.0
+> classified that 2.4 MB served page as `unknown`, retried it three times and
+> exited 5 ("the pages never arrived"); the daily canary was red on
+> 2026-10-13 and 2026-10-14 for that reason.
+
+> **Behaviour change for `scraper_api_client.py --retries`.** It used to
+> count EXTRA attempts (default 1 = two tries) while the browser engines'
+> `--retries` counted ATTEMPTS (default 3 = three tries). It now counts
+> attempts everywhere, so the client's default of 1 is one try. A refused
+> page is still re-fetched once, so the most a refused page costs is
+> unchanged: two tasks. And `--retries 0` is now refused (exit 2) in every
+> engine, where it used to mean no attempt at all.
+
+Also in this release: fixes from a third-party audit of 0.1.0, each reproduced before it was
+changed.
 
 ### Fixed
 
@@ -48,29 +68,6 @@ said so at the top of its release notes.
 - A vehicle (detail) page that has moved to a payload this parser cannot
   read now reads as `unreadable` as well as `unknown`; either way it is
   exit 5 when nothing was gathered, never a gone listing.
-
-## [0.1.1] — 2026-10-07
-
-> **The listing mode works again.** From 2026-10-13 autotrader.com's results
-> page no longer carries `__NEXT_DATA__`: it is a Next.js App Router page
-> with the same records inside its `self.__next_f` flight chunks. 0.1.0
-> classified that 2.4 MB served page as `unknown`, retried it three times and
-> exited 5 ("the pages never arrived"); the daily canary was red on
-> 2026-10-13 and 2026-10-14 for that reason.
-
-Also in this release: fixes from a third-party audit of 0.1.0, each reproduced before it was
-changed.
-
-> **Behaviour change for `scraper_api_client.py --retries`.** It used to
-> count EXTRA attempts (default 1 = two tries) while the browser engines'
-> `--retries` counted ATTEMPTS (default 3 = three tries). It now counts
-> attempts everywhere, so the client's default of 1 is one try. A refused
-> page is still re-fetched once, so the most a refused page costs is
-> unchanged: two tasks. And `--retries 0` is now refused (exit 2) in every
-> engine, where it used to mean no attempt at all.
-
-### Fixed
-
 - **`--retries 0` made no request and reported "the pages were never
   obtained" (exit 5).** The page loop counts attempts. Reproduced offline:
   0 navigations, exit 5. Now exit 2 with the reason.
