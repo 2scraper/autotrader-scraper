@@ -91,10 +91,11 @@ Then the rest of the presentation, in the order that matters:
 1. `python3 smoke_test.py` green, and the canary dispatched at least once.
    It needs the `AUTOTRADER_PROXY` secret (a US residential exit), because
    the site refused every datacentre address measured; without the secret
-   it skips with a notice rather than going red. Dispatch it once both
-   ways, and confirm the branch you expect ran.
-2. The repo description, homepage and topics set (see the family notes on
-   what those should say).
+   it fails with an error naming it. Dispatch it, and confirm it ran the
+   site rather than stopping at the secret check.
+2. The repo description, homepage and topics set: a description that names
+   what the site actually gives you, the homepage, and topics people search
+   for.
 3. Only then the row in the org profile README — and check it with an
    ANONYMOUS request rather than your own logged-in browser. A row pointing
    at a private repo is a 404 for every visitor, which costs more trust than

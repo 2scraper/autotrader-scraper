@@ -74,7 +74,7 @@ logger = logging.getLogger("playwright_scraper")
 
 
 # Chromium's own names for a proxy that could not be used. Distinguished
-# from a timeout because the two want opposite responses (CLAUDE.md §8).
+# from a timeout because the two want opposite responses.
 _PROXY_ERROR_MARKERS = (
     "ERR_PROXY_CONNECTION_FAILED",
     "ERR_TUNNEL_CONNECTION_FAILED",
@@ -101,12 +101,12 @@ def _launch_local(pw, args, pool):
 
     A proxy rotation tears the whole browser down and calls this again.
     Cookies a bot manager issued against one exit, replayed from another,
-    are a stronger signal than either address alone (§8), and Akamai Bot
+    are a stronger signal than either address alone, and Akamai Bot
     Manager is what fronts this site.
 
     No User-Agent is set. The browser's own is consistent with its TLS and
     client hints by construction, and a bare UA override is what a sibling
-    site behind the same vendor scored after one page (§24).
+    site behind the same vendor scored after one page.
     """
     launch_kwargs = {"headless": args.headless}
     proxy = to_playwright(pool.current) if pool else None
@@ -226,7 +226,7 @@ def _connect_remote(pw, args):
             break
     if browser is None:
         # The endpoint carries a password, and Playwright repeats it five
-        # times in its error text (§8). Rewritten with it masked, keeping
+        # times in its error text. Rewritten with it masked, keeping
         # host and port, which are the useful half.
         raise PWError(
             f"could not connect to --cdp-endpoint "
@@ -255,7 +255,7 @@ def _connect_remote(pw, args):
 
 # Every `scheme://user:pass@` in a string, however many times it occurs.
 # Matching GLOBALLY is the point: a Playwright connection error repeats the
-# endpoint five times (§8).
+# endpoint five times.
 _CREDENTIALS_IN_URL_RE = re.compile(r"([a-z][a-z0-9+.\-]*://)[^\s/@]+:[^\s/@]+@",
                                     re.IGNORECASE)
 
@@ -270,8 +270,8 @@ def handle_captcha_if_present(page, args) -> bool:
 
     NOT OBSERVED on this site: no captcha of any kind appeared on any page
     captured on 2026-09-24, served or refused. The refusal it does send has
-    no widget on it, so there is nothing to buy an answer to (§19:
-    "unsolvable" is a property of a page). This path is the insurance for a
+    no widget on it, so there is nothing to buy an answer to
+    ("unsolvable" is a property of a page, not of a vendor). This path is the insurance for a
     page that one day carries a reCAPTCHA, and page_flow calls it only for
     a page it has classified as a challenge.
     """
@@ -295,7 +295,7 @@ def handle_captcha_if_present(page, args) -> bool:
         token = solve_recaptcha(challenge, args.twocaptcha_key,
                                 api_version=args.captcha_api,
                                 min_score=args.min_score)
-    except Exception as e:  # noqa: BLE001 — a solver error is a warning (§8)
+    except Exception as e:  # noqa: BLE001 — a solver error is a warning
         logger.error("Solving the reCAPTCHA failed (%s) — continuing.",
                      _mask_credentials(str(e)))
         return False
@@ -315,7 +315,7 @@ def _fetch_pages_concurrently(args, pool, query, page_nums, concurrency: int,
 
     Each worker owns its own Playwright instance, browser and exit: with the
     sync API a browser belongs to the thread that made it, so sharing one is
-    not an option even in principle (§7). The page loop itself is
+    not an option even in principle. The page loop itself is
     page_flow.worker_loop, shared by all three engines.
     """
     work = queue.Queue()

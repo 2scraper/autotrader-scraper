@@ -9,6 +9,46 @@ said so at the top of its release notes.
 
 ## [Unreleased]
 
+> **Behaviour changes.**
+> - A results page the site **served** (built from its own assets, no
+>   refusal on it) that holds no store this parser can read is now reported
+>   as `stop_reason: parser_found_nothing` after ONE navigation, instead of
+>   being retried three times as "unknown" and reported as a page that never
+>   arrived. The exit code stays 5 when nothing was gathered (6 after rows);
+>   the log says the page changed shape rather than pointing at the proxy.
+> - CSV cells beginning with `=`, `+`, `-`, `@`, a tab, CR or LF now get a
+>   leading apostrophe, so a spreadsheet reads them as text. Numbers and the
+>   JSON output are unchanged; the sidecar records `csv_cells_escaped`.
+> - Negative `--delay`, `--retry-delay` and `--proxy-block-retries`, and
+>   `--concurrency` below 1, are now usage errors (exit 2).
+> - `.env.example` no longer sets `AUTOTRADER_URL` (it is a commented-out
+>   example), and an `AUTOTRADER_URL` from the environment no longer blocks
+>   `--make/--model/--zip` or `--vehicle-id` typed on the command line.
+
+### Fixed
+
+- Output files are written atomically: JSON, CSV and the `.meta.json`
+  sidecar go to a temp file in the same directory, are fsynced and renamed
+  over the target. A write that failed partway used to leave a truncated,
+  invalid file where the previous good one was (measured: 1,209 bytes became
+  13). New files get the mode `open()` would give them under the umask; an
+  existing file keeps its own mode.
+- `.github/ci_checks.py --secret-check` outside a git checkout (a ZIP
+  download) used to print "ok 0 files scanned"; it now says it skipped, and
+  a scan that reads 0 files in a checkout fails.
+- A 401 from `--cdp-endpoint` no longer claims profile credentials last
+  "about a day": how long they last varies, and one was measured working
+  ten days after issue.
+- The canary no longer goes green without the `AUTOTRADER_PROXY` secret:
+  it fails with an error naming it. Every row must also carry `sku`,
+  `title`, `vin`, `year`, `make`, `model` and `seller_name`, and exit 6 is
+  reported as a partial run.
+- Comments and docstrings no longer cite private notes; the rule is stated
+  in place. A suite check keeps it that way.
+- A vehicle (detail) page that has moved to a payload this parser cannot
+  read now reads as `unreadable` as well as `unknown`; either way it is
+  exit 5 when nothing was gathered, never a gone listing.
+
 ## [0.1.1] — 2026-10-07
 
 > **The listing mode works again.** From 2026-10-13 autotrader.com's results

@@ -67,7 +67,7 @@ logger = logging.getLogger("selenium_scraper")
 PAGE_LOAD_TIMEOUT = page_flow.NAV_TIMEOUT_MS // 1000
 SCRIPT_TIMEOUT = 30
 
-# Chromium's own names for "the proxy is the problem, not the site" (§8).
+# Chromium's own names for "the proxy is the problem, not the site".
 _PROXY_ERROR_MARKERS = (
     "ERR_PROXY_CONNECTION_FAILED", "ERR_TUNNEL_CONNECTION_FAILED",
     "ERR_PROXY_AUTH_UNSUPPORTED", "ERR_PROXY_AUTH_REQUESTED",
@@ -90,7 +90,7 @@ return true;
 """
 
 
-# Every `scheme://user:pass@` in a string, however many times it occurs (§8).
+# Every `scheme://user:pass@` in a string, however many times it occurs.
 _CREDENTIALS_IN_URL_RE = re.compile(r"([a-z][a-z0-9+.\-]*://)[^\s/@]+:[^\s/@]+@",
                                     re.IGNORECASE)
 
@@ -129,7 +129,7 @@ class _Ops:
     """One Chrome driver, exposed as page_flow's named operations.
 
     Same contract as playwright_scraper._Ops, including the rule that a
-    rotation means a genuinely FRESH browser (§8).
+    rotation means a genuinely FRESH browser.
     """
 
     def __init__(self, args, pool):
@@ -144,7 +144,7 @@ class _Ops:
             logger.info("Attaching to an existing browser at %s.",
                         options.debugger_address)
             # No UA, no proxy, no fingerprint on this path: the remote browser
-            # brings its own (§8).
+            # brings its own.
             self.driver = webdriver.Chrome(options=options)
             self._apply_timeouts()
             return self
@@ -171,7 +171,7 @@ class _Ops:
 
         # No User-Agent override. The browser's own agrees with its TLS and
         # client hints; a bare CDP override is what a sibling site behind
-        # the same vendor scored after one page (§24).
+        # the same vendor scored after one page.
         self.driver = webdriver.Chrome(options=options)
         self._apply_timeouts()
         if self.args.fingerprint:
@@ -180,7 +180,7 @@ class _Ops:
 
     def _apply_timeouts(self):
         # Explicit, because a driver that stops answering otherwise hangs
-        # the run (§8).
+        # the run.
         self.driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
         self.driver.set_script_timeout(SCRIPT_TIMEOUT)
 
@@ -273,7 +273,7 @@ def handle_captcha_if_present(ops, args) -> bool:
         token = solve_recaptcha(challenge, args.twocaptcha_key,
                                 api_version=args.captcha_api,
                                 min_score=args.min_score)
-    except Exception as e:  # noqa: BLE001 — a solver error is a warning (§8)
+    except Exception as e:  # noqa: BLE001 — a solver error is a warning
         logger.error("Solving the reCAPTCHA failed (%s) — continuing.",
                      _mask_credentials(str(e)))
         return False

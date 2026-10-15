@@ -2,7 +2,7 @@
 page_flow.py
 ------------
 The retry / solve / blocked decision, as DATA rather than as three copies of
-an if-chain (CLAUDE.md §1), and the page loop itself, once, for all three
+an if-chain, and the page loop itself, once, for all three
 engines.
 
 autotrader.com answers one of this repo's navigations in five ways, measured
@@ -25,8 +25,8 @@ Three states are named and have NOT been observed: a challenge (reCAPTCHA
 or Akamai's behavioural page), a 429, and a 403. They are here because a
 scraper that cannot name a refusal reports it as success.
 
-Nothing here imports a browser, and **no JavaScript crosses this boundary**
-(§1). Each engine answers a handful of named operations in its own driver's
+Nothing here imports a browser, and **no JavaScript crosses this boundary**.
+Each engine answers a handful of named operations in its own driver's
 dialect; see "The page loop" below.
 """
 
@@ -51,7 +51,7 @@ log = logging.getLogger("page_flow")
 
 # How long one navigation may take. The largest page measured was 3.1 MB
 # (100 results), which arrived in 8 to 16 seconds through a residential
-# exit. The bound exists because §8 requires every remote call to have one.
+# exit. The bound exists because every remote call must have one.
 NAV_TIMEOUT_MS = 60_000
 
 # How long to keep reading a document that came back as neither a page nor
@@ -79,7 +79,7 @@ def classify(html: Optional[str], status: Optional[int] = None,
     The argument ORDER is the contract: every caller passes
     `classify(html, status, url, mode, expect_id)`. A sibling repo shipped
     `classify(html, url=...)` in two of three engines against a callee that
-    took `status` second, and both crashed on their first fetch (§17).
+    took `status` second, and both crashed on their first fetch.
     """
     return detect_page_state(html or "", status, url, mode, expect_id)
 
@@ -100,9 +100,14 @@ STATE_POLICY = {
     "challenge":  {"retry": True,  "solve": True,  "blocked": True,  "parse": False},
     # NOT OBSERVED. Waited out at the same exit, and NOT counted as blocked:
     # calling a throttle a block reports exit 3 for a page that was about to
-    # come back (§24).
+    # come back.
     "throttled":  {"retry": True,  "solve": False, "blocked": False, "parse": False},
     "blocked":    {"retry": True,  "solve": False, "blocked": True,  "parse": False},
+    # The site's own page, served, with no store this parser can read: the
+    # page changed shape. Not retried (the same request gets the same page),
+    # not blocked, and reported as a parser failure rather than as content
+    # that never arrived.
+    "unreadable": {"retry": False, "solve": False, "blocked": False, "parse": False},
     "unknown":    {"retry": True,  "solve": False, "blocked": False, "parse": False},
 }
 
@@ -124,7 +129,7 @@ def should_parse(state: str) -> bool:
 
 
 # Whether a blocked page is worth re-fetching at all. CONSULTED by the loop
-# below, so setting it False really does stop the retry (§17).
+# below, so setting it False really does stop the retry.
 RETRY_ON_BLOCKED = True
 
 # How many times to re-fetch a blocked page when there is no proxy pool to
@@ -137,7 +142,7 @@ BLOCK_RETRIES_WITHOUT_POOL = 1
 
 # At most one solve per page, counted across every call site: a challenge
 # that survives a solved token is not one this run can pass, and a second
-# solve is a second charge for the same answer (§23).
+# solve is a second charge for the same answer.
 SOLVES_PER_PAGE = 1
 
 
@@ -162,7 +167,7 @@ def concurrency_limit(cdp_endpoint: Optional[str]) -> Optional[int]:
 
     The Scraping Browser API allows ONE live connection per profile, so N
     workers sharing a `pid` collide with `profile_locked`. Several `pid`s,
-    one run each, is the way to parallelise that path (§7).
+    one run each, is the way to parallelise that path.
     """
     return 1 if cdp_endpoint else None
 
@@ -204,6 +209,8 @@ def stop_reason_for(outcome) -> str:
         return "parser_found_nothing"
     if getattr(outcome, "state", None) == "throttled":
         return "throttled"
+    if getattr(outcome, "state", None) == "unreadable":
+        return "parser_found_nothing"
     return "page_load_timeout"
 
 
@@ -224,7 +231,7 @@ def build_query(args, error: Callable[[str], None]) -> Query:
     --url and the search flags are two ways to say the same thing. A flag
     the user typed that disagrees with the URL would silently scrape
     something neither of them named, so the combination is refused rather
-    than merged (the family's --country rule, §10). `error` is argparse's
+    than merged (as --country is refused on the sibling scrapers). `error` is argparse's
     `p.error`, so a refusal is exit 2 with the usage line.
     """
     typed = [flag for dest, flag in SEARCH_FLAGS
@@ -308,9 +315,9 @@ def query_summary(query: Query) -> dict:
 #     ops.proxy_failure(text) -> the driver's proxy-error name in text, or ""
 #     ops.pool                -> the worker's ProxyPool, or None
 #
-# The family carried three copies of this loop for nine sites, and §6 says
-# the three must agree on exit codes and on whether a run spends money. One
-# copy is how that holds by construction (§26).
+# The family carried three copies of this loop for nine sites, and the
+# three engines must agree on exit codes and on whether a run spends money. One
+# copy is how that holds by construction.
 
 
 class TransportError(Exception):
@@ -323,7 +330,7 @@ class PageOutcome:
 
     Collected per page and merged afterwards, in page order, rather than
     folded into shared state as the loop goes, so the output cannot depend
-    on which page happened to finish first (§8).
+    on which page happened to finish first.
     """
     page_num: int
     url: str
@@ -402,7 +409,7 @@ def fields_below_floor(coverage: dict, mode: str) -> List[str]:
 
 
 def _dump(args, page_num: int, text: str) -> None:
-    """Write the exact document the parser was given, on success too (§9)."""
+    """Write the exact document the parser was given, on success too."""
     if not args.dump_html:
         return
     path = args.dump_html if args.pages == 1 and page_num == 1 else \
@@ -432,10 +439,12 @@ def _navigate(ops, url: str, mode: str, expect_id: Optional[str],
     text = ops.document_text()
     state = classify(text, status, final_url, mode, expect_id)
     waited = 0
+    # "unreadable" is polled too: a document read before the browser has
+    # finished parsing it can lack the store that the finished one carries.
     # An engine with no browser of its own (the Scraper API) declares
     # `runs_scripts = False`: nothing can replace its document, so polling
     # it would re-read the same bytes for READY_WAIT_MS.
-    while (state == "unknown" and waited < READY_WAIT_MS
+    while (state in ("unknown", "unreadable") and waited < READY_WAIT_MS
            and getattr(ops, "runs_scripts", True)):
         ops.wait_ms(READY_POLL_MS)
         waited += READY_POLL_MS
@@ -486,7 +495,7 @@ def fetch_one_page(ops, args, pool, query: Query, page_num: int,
                     break  # a different exit is the only thing that helps
             if state == "throttled" and throttles < THROTTLE_RETRIES:
                 throttles += 1
-                attempt -= 1  # a throttle wait spends its own budget (§24)
+                attempt -= 1  # a throttle wait spends its own budget
                 pause = THROTTLE_WAIT_S * throttles
                 log.warning("Rate-limited on page %d (HTTP 429) — waiting %.0fs "
                             "at the same exit (%d/%d).", page_num, pause,
@@ -544,6 +553,16 @@ def fetch_one_page(ops, args, pool, query: Query, page_num: int,
         log.warning("Vehicle %s is no longer listed: the site answered its "
                     "detail page with a results page for another location "
                     "(%s). No row for it.", expect_id, final_url)
+        return outcome
+    if state == "unreadable":
+        outcome.load_failed = True
+        debug = _save_debug(args, page_num, text)
+        log.error("Page %d was served by the site (%d bytes, built from its own "
+                  "assets, no refusal on it) but holds no store this parser "
+                  "can read: the page has changed shape. Saved to %s. This is "
+                  "a parser failure, not a proxy or network problem, and it "
+                  "was not retried. Re-run with --dump-html and open a 'Site "
+                  "changed' issue.", page_num, len(text or ""), debug)
         return outcome
     if not should_parse(state):
         # throttled past its budget, or never a page of the site at all
@@ -619,7 +638,7 @@ def finish(args, query: Query, outcomes: List[PageOutcome], stop_reason: str,
     """Merge the pages in PAGE order, write the output, return the exit code.
 
     One implementation for the three engines, so the merge order, the
-    dedupe and the sidecar cannot differ between them (§6).
+    dedupe and the sidecar cannot differ between them.
     """
     rows, seen = [], set()
     for oc in sorted(outcomes, key=lambda o: o.page_num):
@@ -705,7 +724,7 @@ def run_pages(open_ops, close_ops, run_concurrently, args, pool,
     ops = open_ops()
     try:
         # Page 1 is always fetched alone: it says how many pages there are,
-        # and whether the site understood the search at all (§7).
+        # and whether the site understood the search at all.
         first = fetch_one_page(ops, args, pool, query, 1, mask)
         outcomes.append(first)
         if first.dropped:
@@ -765,7 +784,7 @@ def run_pages(open_ops, close_ops, run_concurrently, args, pool,
                         blocked = outcome.blocked_by is not None
                         break
                     if _ends_listing(query, outcome):
-                        # A property of the DATA, and complete (§7).
+                        # A property of the DATA, and complete.
                         log.info("Page %d ended the search.", page_num)
                         stop_reason = "end_of_listing"
                         break
@@ -830,7 +849,7 @@ def worker_pool(pool, worker_index: int):
     """A private ProxyPool for one worker, starting at a different exit.
 
     Workers start on distinct exits and share no mutable state, so rotation
-    needs no lock (§7).
+    needs no lock.
     """
     if not pool:
         return None
@@ -847,14 +866,15 @@ def worker_pool(pool, worker_index: int):
 def cdp_connect_hint(error_text: str) -> str:
     """What a failed --cdp-endpoint connection means, from its status.
 
-    Two answers that want opposite fixes. A profile's credentials last about
-    a day, so a 401 is almost always an expired endpoint; a 500 is almost
-    always a pid another run still holds (§26).
+    Two answers that want opposite fixes. A profile's credentials expire
+    (how long one lasts varies: one was measured working ten days after it
+    was issued), so a 401 is most often an expired endpoint; a 500 is almost
+    always a pid another run still holds.
     """
     if "401" in (error_text or ""):
         return ("HTTP 401: the endpoint's credentials were refused. A Scraping "
-                "Browser profile's credentials last about a day, so an "
-                "endpoint copied from an older .env has usually expired. "
+                "Browser profile's credentials expire, so an endpoint "
+                "copied from an older .env has most likely expired. "
                 "Get a fresh one from your 2Captcha dashboard.")
     return ("A Scraping Browser profile allows ONE live connection at a time, "
             "so an HTTP 500 here usually means another run still holds this "

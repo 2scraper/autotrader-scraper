@@ -2,7 +2,7 @@
 cli.py
 ------
 The command line every engine shares: what to scrape, how, and what to do
-after parsing. One definition, so the three CLIs cannot drift apart (§17's
+after parsing. One definition, so the three CLIs cannot drift apart (the
 flag-parity check in smoke_test.py still asserts it).
 
 No browser library is imported here, so the Selenium and pyppeteer engines
@@ -43,7 +43,7 @@ def display_problem(args) -> Optional[str]:
 
 def add_search_args(p):
     """The flags every engine takes to say WHAT to scrape. Shared so the
-    three CLIs cannot drift (§17's flag-parity check still asserts it)."""
+    three CLIs cannot drift (the flag-parity check still asserts it)."""
     p.add_argument("--mode", choices=["listing", "vehicle"], default=None,
                    help="listing (default): one search's organic results. "
                         "vehicle: one detail page per listing id. Inferred "
@@ -178,8 +178,19 @@ def add_common_args(p, out_default="autotrader_rows"):
 def finish_args(p, args, engine: Optional[str] = None):
     """Everything after parsing that the three engines do identically.
     `engine` is recorded in the sidecar, so a refused run says what fetched it."""
+    # Whether --url was TYPED, captured before the environment can fill it.
+    # Afterwards an AUTOTRADER_URL from .env is indistinguishable from a
+    # typed --url, and the conflict check refused --make/--model/--zip (and
+    # --vehicle-id) for anyone with that variable set, with "--url already
+    # carries the search" about a URL they never typed.
+    typed_url = args.url
     env_config.apply(args)
     args.engine = engine
+    if typed_url is None and args.url is not None and _asks_for_something(args):
+        print("[*] Ignoring AUTOTRADER_URL from the environment: the search "
+              "flags or vehicle ids on the command line say what to scrape.",
+              file=sys.stderr)
+        args.url = None
     if args.retries < 1:
         # Found by an audit, 2026-10-07: the page loop counts ATTEMPTS, so
         # --retries 0 made no navigation at all and the run reported exit 5,
@@ -193,6 +204,37 @@ def finish_args(p, args, engine: Optional[str] = None):
                 "style is part of the search URL itself (e.g. "
                 "/cars-for-sale/suv/denver-co). Build the search on the site "
                 "and pass it as --url.")
+    for message in numeric_arg_errors(args):
+        p.error(message)
     args.query = page_flow.build_query(args, p.error)
     args.mode = args.query.mode
     return args
+
+
+def _asks_for_something(args) -> bool:
+    """True when the command line itself names a search or vehicles."""
+    return bool(any(getattr(args, dest, None) is not None
+                    for dest, _ in page_flow.SEARCH_FLAGS)
+                or getattr(args, "vehicle_id", None)
+                or getattr(args, "from_listing", None))
+
+
+def numeric_arg_errors(args) -> list:
+    """Numeric flags whose value cannot mean anything, one message each.
+
+    Negative delays used to reach `wait_ms` and a negative or zero worker
+    count reached the page loop; argparse's `type=int` checks the type and
+    nothing else. --pages is checked in build_query.
+    """
+    out = []
+    for dest, flag in (("delay", "--delay"), ("retry_delay", "--retry-delay")):
+        value = getattr(args, dest, None)
+        if value is not None and value < 0:
+            out.append("%s must be 0 or more seconds (got %s)" % (flag, value))
+    value = getattr(args, "concurrency", None)
+    if value is not None and value < 1:
+        out.append("--concurrency must be at least 1 (got %s)" % value)
+    value = getattr(args, "proxy_block_retries", None)
+    if value is not None and value < 0:
+        out.append("--proxy-block-retries must be 0 or more (got %s)" % value)
+    return out

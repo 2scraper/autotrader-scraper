@@ -73,7 +73,7 @@ PLAN = {
 # Kept whole: 4.4 KB of static Akamai page, the same bytes for every URL,
 # carrying nothing about the request; and the same page as a Scraping
 # Browser session served it (2026-09-24, country-us), with the 16 scripts
-# the auto-solve extension injects into every page it loads (§24). Read for
+# the auto-solve extension injects into every page it loads. Read for
 # anything request-specific before committing: the extension id and the
 # script paths are the same for everyone.
 VERBATIM = {"refused_unavailable": "p_hl.html",
