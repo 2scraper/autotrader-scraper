@@ -8,7 +8,7 @@ engines.
 autotrader.com answers one of this repo's navigations in five ways, measured
 2026-09-24, and they want four different responses:
 
-    a results or detail page (the site's own __NEXT_DATA__) -> parse
+    a results or detail page (the site's own store) -> parse
     a results page whose own count is 0                     -> parse, it is
                                                                an answer
     a detail URL answered with a results page elsewhere     -> "gone": the

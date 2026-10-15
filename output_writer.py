@@ -129,7 +129,9 @@ class Vehicle:
     # the first 300 by relevance are different samples. `diff_runs.py`
     # refuses to compare two runs that differ here (§21).
     sort: Optional[str] = None
-    # "next_data": the page's own __NEXT_DATA__ store. Provenance in a
+    # "next_data": the page's own __NEXT_DATA__ store; "next_flight": the
+    # same store read from the App Router flight payload the results page
+    # has carried since 2026-10-13. Provenance in a
     # column (§8).
     data_source: Optional[str] = None
 

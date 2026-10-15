@@ -7,6 +7,33 @@ toolkit can: a patch release means **fixes**, not that every flag and
 default is frozen. A default that changes behaviour for an existing user is
 said so at the top of its release notes.
 
+## [Unreleased]
+
+> **The listing mode works again.** From 2026-10-13 autotrader.com's results
+> page no longer carries `__NEXT_DATA__`: it is a Next.js App Router page
+> with the same records inside its `self.__next_f` flight chunks. 0.1.0
+> classified that 2.4 MB served page as `unknown`, retried it three times and
+> exited 5 ("the pages never arrived"); the daily canary was red on
+> 2026-10-13 and 2026-10-14 for that reason.
+
+### Fixed
+
+- Results pages are read from the App Router flight payload when there is
+  no `__NEXT_DATA__`. The records are the same (`inventory`, `owners`), so
+  every column is read as before; `data_source` is `next_flight` on those
+  rows. Replayed on the canary's captures of 2026-10-13 and 2026-10-14: 25
+  of 25 rows each, VIN/price/seller on every row, the site's count (417 and
+  410) and 12 pages read. `__NEXT_DATA__` is still read first.
+- The Scraper API client's default wait was the text `__NEXT_DATA__`, which
+  a served results page no longer carries; it now waits for the site's own
+  asset path, `/cars-for-sale/_next/static/`.
+
+### Not verified
+
+- Vehicle (detail) pages: no capture in the new shape exists yet. If a
+  detail page has moved too, it reads as `unknown` (exit 5), never as a
+  gone listing.
+
 ## [0.1.0] — 2026-09-24
 
 First release. Two modes over autotrader.com's own page store, three browser

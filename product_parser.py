@@ -9,7 +9,9 @@ What the site serves, measured 2026-09-24
 -----------------------------------------
 Every search results page (SRP) and vehicle detail page (VDP) is a Next.js
 document whose `<script id="__NEXT_DATA__">` carries the site's own redux
-store, `props.pageProps.__eggsState`. That store is the source here:
+store, `props.pageProps.__eggsState`. That store is the source here (and
+since 2026-10-13 a results page carries it in App Router flight chunks
+instead; `flight_data` maps that onto the same shape):
 
     srp_results.activeResults    the ORGANIC results of this page, as listing
                                  ids, in the order the page shows them
@@ -308,15 +310,232 @@ _LD_RE = re.compile(
 
 
 def next_data(doc: Optional[str]) -> Optional[Dict[str, Any]]:
-    """The page's __NEXT_DATA__, parsed, or None."""
+    """The page's store, in the __NEXT_DATA__ shape, or None.
+
+    Two payloads carry it. Until 2026-10-12 every results page had a
+    `<script id="__NEXT_DATA__">`. From 2026-10-13 the results page is a
+    Next.js App Router document instead: no __NEXT_DATA__ at all, and the
+    same records inside the `self.__next_f.push([1, "..."])` flight chunks
+    (see `flight_data`). Both are returned in the old shape, so everything
+    below reads one store whichever the site served.
+    """
     m = _NEXT_DATA_RE.search(doc or "")
     if not m:
-        return None
+        return flight_data(doc)
     try:
         data = json.loads(m.group(1))
     except ValueError:
         return None
     return data if isinstance(data, dict) else None
+
+
+# ---------------------------------------------------------------------------
+# The App Router flight payload (results pages from 2026-10-13)
+# ---------------------------------------------------------------------------
+#
+# Measured on the canary's own captures of 2026-10-13 and 2026-10-14 (2.4 MB
+# each, served through a US residential exit): three `push([1, "..."])`
+# chunks whose strings, concatenated, are a React Server Components payload
+# of ~280 rows, `<hex id>:<JSON>` one per line, plus `T` rows (`<id>:T<hex
+# byte length>,<text>`) that carry raw text with newlines in it. One row is
+# the element whose props hold the page's data:
+#
+#     props.pageData.inventory         one record per listing id (results
+#                                      AND placements), same keys as the old
+#                                      store's `inventory`
+#     props.pageData.owners            one record per seller, ditto
+#     props.pageData.inventoryIds      the ORGANIC results, in page order
+#                                      (was srp_results.activeResults)
+#     props.pageData.totalResultCount  the site's own count (was .count)
+#     props.pageData.paginationLinks   was srp_srpPaginationLinks.links
+#     props.pageData.spotlightIds,
+#     props.pageData.boostListingIds   PAID placements
+#     props.pageData.currentPage       the page the server rendered
+#     props.initialContext.query       the search the site ran (was `query`)
+#
+# Values may be references: "$undefined" is undefined, "$$..." is a literal
+# string starting "$" (prices printed "$$22,363"), and "$<id>:<path>" points
+# into another row or this one ("$6:props:pageData:inventory:N:phone" is a
+# dealer's phone shared between its cars). They are resolved before the
+# records are read. `initialContext` also carries the requesting address
+# (`clientIp`), which is never read.
+
+_FLIGHT_PUSH_RE = re.compile(r"self\.__next_f\.push\(\[1,\s*")
+_FLIGHT_ROW_RE = re.compile(r"([0-9a-f]+):")
+_FLIGHT_REF_RE = re.compile(r"^\$([0-9a-f]+)((?::[^:]+)*)$")
+_FLIGHT_CACHE: Dict[int, Tuple[str, Optional[Dict[str, Any]]]] = {}
+
+
+def _flight_text(doc: str) -> str:
+    decoder = json.JSONDecoder()
+    parts = []
+    for m in _FLIGHT_PUSH_RE.finditer(doc):
+        try:
+            value, _ = decoder.raw_decode(doc, m.end())
+        except ValueError:
+            continue
+        if isinstance(value, str):
+            parts.append(value)
+    return "".join(parts)
+
+
+def _flight_rows(text: str) -> Dict[str, str]:
+    """{row id: its raw JSON text}. `T` rows are skipped by their length,
+    which counts UTF-8 bytes."""
+    rows: Dict[str, str] = {}
+    i, n = 0, len(text)
+    while i < n:
+        m = _FLIGHT_ROW_RE.match(text, i)
+        if not m:
+            j = text.find("\n", i)
+            if j < 0:
+                break
+            i = j + 1
+            continue
+        rid, i = m.group(1), m.end()
+        if text.startswith("T", i):
+            comma = text.find(",", i)
+            try:
+                size = int(text[i + 1:comma], 16)
+            except ValueError:
+                break
+            chunk = text[comma + 1:comma + 1 + size].encode("utf-8")[:size]
+            i = comma + 1 + len(chunk.decode("utf-8", "ignore"))
+            continue
+        j = text.find("\n", i)
+        if j < 0:
+            j = n
+        rows[rid] = text[i:j]
+        i = j + 1
+    return rows
+
+
+class _Flight:
+    def __init__(self, rows: Dict[str, str]):
+        self.rows = rows
+        self.parsed: Dict[str, Any] = {}
+
+    def row(self, rid: str) -> Any:
+        if rid not in self.parsed:
+            try:
+                self.parsed[rid] = json.loads(self.rows.get(rid, "null"))
+            except ValueError:
+                self.parsed[rid] = None
+        return self.parsed[rid]
+
+    def follow(self, rid: str, path: List[str], depth: int) -> Any:
+        node = self.row(rid)
+        for seg in path:
+            if (isinstance(node, list) and len(node) >= 4 and node[0] == "$"
+                    and seg == "props"):
+                node = node[3]
+            elif isinstance(node, list):
+                try:
+                    node = node[int(seg)]
+                except (ValueError, IndexError):
+                    return None
+            elif isinstance(node, dict):
+                node = node.get(seg)
+            else:
+                return None
+        return self.resolve(node, depth + 1)
+
+    def resolve(self, v: Any, depth: int = 0) -> Any:
+        if depth > 12:
+            return None
+        if isinstance(v, dict):
+            return {k: self.resolve(x, depth) for k, x in v.items()}
+        if isinstance(v, list):
+            return [self.resolve(x, depth) for x in v]
+        if isinstance(v, str) and v.startswith("$"):
+            if v == "$undefined":
+                return None
+            if v.startswith("$$"):
+                return v[1:]
+            m = _FLIGHT_REF_RE.match(v)
+            if m:
+                path = [p for p in m.group(2).split(":") if p]
+                return self.follow(m.group(1), path, depth)
+        return v
+
+
+def _find_page_props(node: Any, depth: int = 0) -> Optional[Dict[str, Any]]:
+    """The props object holding `pageData` with an `inventory`."""
+    if depth > 40:
+        return None
+    if isinstance(node, dict):
+        pd = node.get("pageData")
+        if isinstance(pd, dict) and "inventory" in pd:
+            return node
+        children = node.values()
+    elif isinstance(node, list):
+        children = node
+    else:
+        return None
+    for child in children:
+        found = _find_page_props(child, depth + 1)
+        if found is not None:
+            return found
+    return None
+
+
+def flight_data(doc: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The store of an App Router results page, in the __NEXT_DATA__ shape,
+    or None when the document carries no such payload.
+
+    Only a RESULTS page is mapped (`inventoryIds` present). Whether the
+    detail page has moved too has not been measured, and guessing its shape
+    would turn a parse failure into wrong rows.
+    """
+    doc = doc or ""
+    if "self.__next_f" not in doc:
+        return None
+    key = id(doc)
+    cached = _FLIGHT_CACHE.get(key)
+    if cached is not None and cached[0] is doc:
+        return cached[1]
+    result = _flight_data(doc)
+    _FLIGHT_CACHE.clear()  # one document at a time; the engines parse in turn
+    _FLIGHT_CACHE[key] = (doc, result)
+    return result
+
+
+def _flight_data(doc: str) -> Optional[Dict[str, Any]]:
+    flight = _Flight(_flight_rows(_flight_text(doc)))
+    props = None
+    for rid, raw in flight.rows.items():
+        if '"pageData"' in raw and raw[:1] in "[{":
+            props = _find_page_props(flight.row(rid))
+            if props is not None:
+                break
+    if props is None:
+        return None
+    pd = props["pageData"]
+    if not isinstance(pd.get("inventoryIds"), list):
+        return None
+    get = lambda k: flight.resolve(pd.get(k))  # noqa: E731
+    context = props.get("initialContext") if isinstance(props.get("initialContext"), dict) else {}
+    query = flight.resolve(context.get("query"))
+    store_ = {
+        "srp_results": {"activeResults": get("inventoryIds") or [],
+                        "count": get("totalResultCount")},
+        "srp_srpPaginationLinks": {"links": get("paginationLinks") or []},
+        "srp_spotlight": {"activeResults": get("spotlightIds") or []},
+        "srp_boost": {"activeResults": get("boostListingIds") or []},
+        "inventory": get("inventory") or {},
+        "owners": get("owners") or {},
+        "query": query if isinstance(query, dict) else {},
+    }
+    page = get("currentPage")
+    return {"props": {"pageProps": {"pageType": "srp", "__eggsState": store_}},
+            "query": {"page": page} if isinstance(page, int) else {},
+            "_payload": "next_flight"}
+
+
+def payload_kind(doc: Optional[str]) -> str:
+    """Which payload a row came from, for the `data_source` column."""
+    data = next_data(doc)
+    return (data or {}).get("_payload") or "next_data"
 
 
 def page_props(doc_or_data: Any) -> Dict[str, Any]:
@@ -405,6 +624,14 @@ def detect_page_state(doc: Optional[str], status: Optional[int] = None,
                 inv = s.get("inventory") or {}
                 if expect_id is None or str(expect_id) in {str(k) for k in inv}:
                     return "content"
+                return "unknown"
+            if (page_type == "srp" and data.get("_payload") == "next_flight"
+                    and _VDP_RE.match(urlparse(url or "").path or "")):
+                # A flight payload mapped as a results page while the
+                # browser is still ON the detail URL. Whether the detail
+                # page itself has moved to that payload is not measured, so
+                # this is not taken as "gone": a wrong "gone" drops a live
+                # car silently.
                 return "unknown"
             if page_type == "srp":
                 # A detail URL answered with a results page: the listing
@@ -761,6 +988,7 @@ def parse_listing(doc: str, query: Query, page: int = 1,
     owners = s.get("owners") or {}
     ids = (s.get("srp_results") or {}).get("activeResults") or []
     cur = currency(doc) or currency_hint
+    source = payload_kind(doc)
     rows: List[Vehicle] = []
     seen = set()
     for lid in ids:
@@ -772,7 +1000,7 @@ def parse_listing(doc: str, query: Query, page: int = 1,
         rows.append(parse_record(
             rec, owner, Vehicle, currency=cur, page=page,
             position=len(rows) + 1, mode="listing",
-            sort=query.sort or DEFAULT_SORT, data_source="next_data"))
+            sort=query.sort or DEFAULT_SORT, data_source=source))
     return rows
 
 

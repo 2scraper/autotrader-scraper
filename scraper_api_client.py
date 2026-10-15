@@ -367,7 +367,8 @@ def parse_args():
     wait = p.add_mutually_exclusive_group()
     wait.add_argument("--wait-text", default=None,
                       help="Wait until this string appears on the page. Default: "
-                           "__NEXT_DATA__, which only a served page carries.")
+                           "the site's own asset path, /cars-for-sale/_next/static/, "
+                           "which only a served page carries.")
     wait.add_argument("--wait-element", default=None,
                       help="Wait until this CSS selector is visible.")
     wait.add_argument("--wait-state", choices=["load", "domcontentloaded"], default=None,
@@ -408,8 +409,12 @@ def parse_args():
         p.error("--pages must be at least 1")
     if not (args.wait_text or args.wait_element or args.wait_state):
         # A refusal page never carries it, so the wait cannot resolve on one
-        # and hand it back as if it were the page.
-        args.wait_text = "__NEXT_DATA__"
+        # and hand it back as if it were the page. Not "__NEXT_DATA__": the
+        # results page stopped carrying that on 2026-10-13, and a wait for it
+        # would time out on a page that was served. The asset path is on
+        # every served page in both payload shapes (19 to 69 times) and on
+        # neither refusal captured (0).
+        args.wait_text = "/cars-for-sale/_next/static/"
     args.query = query
     return args
 
