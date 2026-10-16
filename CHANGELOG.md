@@ -9,6 +9,11 @@ said so at the top of its release notes.
 
 ## [Unreleased]
 
+### Changed
+
+- CI only: the canary bills the `AUTOTRADER_PROXY` exit, so it now runs weekly
+  (Mondays 06:20 UTC) instead of daily; a manual dispatch still runs it.
+
 ## [0.1.1] — 2026-10-15
 
 > **Behaviour changes.**

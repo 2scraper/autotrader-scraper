@@ -277,7 +277,7 @@ the middle. Each of fifteen planted faults was confirmed to turn it red on the
 check that names it.
 
 The [canary](.github/workflows/canary.yml) runs a real 3-page search and
-three detail pages daily through the repo's `AUTOTRADER_PROXY` secret (a US
+three detail pages weekly (Mondays) through the repo's `AUTOTRADER_PROXY` secret (a US
 residential exit; every datacentre address measured was refused, and a
 GitHub runner is one), and fails on a column below its floor as well as on
 a refusal. Measured from its own history: 11 of 12 runs green between

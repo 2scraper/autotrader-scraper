@@ -1,4 +1,5 @@
-# One real run of each mode against autotrader.com, daily. tests.yml
+# One real run of each mode against autotrader.com, weekly (every run bills
+# the proxy exit, so it runs on Mondays; a manual dispatch runs it any time). tests.yml
 # (deliberately) never touches the site.
 #
 # This canary NEEDS a secret, and FAILS without one. autotrader.com serves
@@ -24,8 +25,9 @@ name: canary
 
 on:
   schedule:
-    # 06:20 UTC. Not on the hour: every scheduled workflow fires at :00.
-    - cron: "20 6 * * *"
+    # Mondays 06:20 UTC. Weekly, not daily: every run bills the proxy exit.
+    # Not on the hour: every scheduled workflow fires at :00.
+    - cron: "20 6 * * 1"
   workflow_dispatch:
 
 permissions:
