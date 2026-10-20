@@ -9,6 +9,7 @@ No browser library is imported here, so the Selenium and pyppeteer engines
 can use it without Playwright installed.
 """
 
+import argparse
 import os
 import sys
 from typing import Optional
@@ -130,6 +131,12 @@ def add_common_args(p, out_default="autotrader_rows"):
                         "per-page: a new exit, and a fresh browser, per page.")
     p.add_argument("--proxy-shuffle", action="store_true",
                    help="Shuffle the pool at startup.")
+    p.add_argument("--load-media", action="store_true",
+                   help="Load images, video and web fonts. By default they are "
+                        "aborted while a local browser goes through --proxy / "
+                        "--proxy-file (no parser reads them, and the proxy bills "
+                        "per byte); never blocked with --cdp-endpoint or no proxy.")
+    p.add_argument("--force-block-media", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--proxy-block-retries", type=int, default=2,
                    help="When a page is refused, retry it from this many OTHER "
                         "exits (default 2). Needs a pool of more than one.")

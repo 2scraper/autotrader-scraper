@@ -31,6 +31,7 @@ dialect; see "The page loop" below.
 """
 
 import logging
+import sys
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
@@ -630,7 +631,18 @@ def fetch_summary(args, pool=None) -> dict:
     return {"engine": getattr(args, "engine", None),
             "headless": bool(getattr(args, "headless", False)),
             "cdp_endpoint": bool(getattr(args, "cdp_endpoint", None)),
-            "proxy": proxy}
+            "proxy": proxy,
+            # Every local browser engine applies the same policy when it
+            # launches (proxy_pool.should_block_media); recorded from it.
+            "media_blocked": bool(getattr(args, "engine", None)
+                                  and _media_policy(args, pool))}
+
+
+def _media_policy(args, pool) -> bool:
+    import proxy_pool
+    return proxy_pool.should_block_media(
+        args, proxy_in_use=pool is not None,
+        over_cdp=bool(getattr(args, "cdp_endpoint", None)))
 
 
 def finish(args, query: Query, outcomes: List[PageOutcome], stop_reason: str,
@@ -708,6 +720,35 @@ def _ends_listing(query: Query, outcome: PageOutcome) -> bool:
                                          or not outcome.products)
 
 
+def _precheck_proxy(args, pool, query: Query) -> Optional[int]:
+    """One HEAD for robots.txt through the proxy BEFORE a browser starts.
+
+    A gateway 407/402 ends the run here, at exit 5, with only the attempt
+    sidecar written; None means "go on as before" (any other answer, or a
+    transport error, is not a verdict on the proxy). Not retried and not
+    rotated: every exit on a refused credential or an exhausted balance
+    answers the same way, and the worker pools share the credential.
+    """
+    import proxy_pool
+    from output_writer import EXIT_FETCH_FAILED, write_failed_attempt
+    start_url = args.url or request_for(query, 1)
+    try:
+        proxy_pool.precheck_proxy(pool.current, proxy_pool.robots_url(start_url),
+                                  timeout=30)
+    except proxy_pool.ProxyPrecheckError as exc:
+        print(proxy_pool.precheck_message(exc, "AUTOTRADER_PROXY", "autotrader.com"),
+              file=sys.stderr)
+        write_failed_attempt(
+            args.out, stop_reason=proxy_pool.PROXY_PRECHECK_STOP_REASON,
+            mode=query.mode, start_url=start_url,
+            pages_requested=(len(query.vehicle_ids) if query.mode == "vehicle"
+                             else args.pages),
+            transport_error="proxy pre-check: %s" % exc,
+            extra={"query": query_summary(query), "fetch": fetch_summary(args, pool)})
+        return EXIT_FETCH_FAILED
+    return None
+
+
 def run_pages(open_ops, close_ops, run_concurrently, args, pool,
               query: Query, concurrency: int,
               mask: Callable[[str], str] = lambda s: s) -> int:
@@ -721,6 +762,10 @@ def run_pages(open_ops, close_ops, run_concurrently, args, pool,
     """
     outcomes: List[PageOutcome] = []
     blocked, stop_reason = False, "completed"
+    if pool is not None and not getattr(args, "cdp_endpoint", None):
+        refused = _precheck_proxy(args, pool, query)
+        if refused is not None:
+            return refused
     ops = open_ops()
     try:
         # Page 1 is always fetched alone: it says how many pages there are,

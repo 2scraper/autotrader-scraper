@@ -54,6 +54,13 @@ alone; `--allow-empty` writes the empty file.
 
 ## Exit 5 — the pages never arrived
 
+* **"proxy pre-check failed — HTTP 407" or "HTTP 402"** — the proxy gateway
+  refused the one `HEAD` for `robots.txt` sent before any browser starts: a
+  `407` is a refused credential (or an exhausted traffic balance), a `402` an
+  exhausted balance. autotrader.com was never reached, so this is not the
+  site blocking you. Check `AUTOTRADER_PROXY`; only
+  `<out>.latest_attempt.meta.json` is written.
+
 * **"Gave up on page N"** — a navigation timeout or a dead proxy. The log
   names which. A residential exit can be slow: a 1.8 MB results page took
   3 to 16 seconds through one on 2026-09-24.

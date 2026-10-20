@@ -55,7 +55,8 @@ from captcha_solver import INJECT_TOKEN_JS, detect_recaptcha_v3, solve_recaptcha
 from output_writer import EXIT_API_ERROR
 import page_flow
 from proxy_pool import (from_args as proxy_pool_from_args, mask, ProxyError,
-                        split_credentials)
+                        split_credentials, should_block_media, pyppeteer_block_media,
+                        BLOCKED_CDP_RESOURCE_TYPES)
 from cli import (add_common_args, add_search_args, display_problem,
                  finish_args)
 
@@ -247,11 +248,17 @@ class _Ops:
         # was served 4 of 4. The browser's own UA is left alone.
         if self.args.fingerprint:
             self._apply_fingerprint()
+        block_media = should_block_media(self.args, proxy_in_use=bool(self.pool))
         if credentials:
-            self._authenticate_proxy(*credentials)
+            # ONE Fetch interception per page: the auth handler below also
+            # fails the media requests when blocking is on.
+            self._authenticate_proxy(*credentials, block_media=block_media)
+        elif block_media:
+            self.bridge.run(pyppeteer_block_media(self.page), timeout=30)
         return self
 
-    def _authenticate_proxy(self, username: str, password: str):
+    def _authenticate_proxy(self, username: str, password: str,
+                            block_media: bool = False):
         """Answer the proxy's 407 through the CDP `Fetch` domain.
 
         pyppeteer's own `page.authenticate` is built on
@@ -271,6 +278,12 @@ class _Ops:
             session = await self.page.target.createCDPSession()
 
             def _paused(event):
+                if block_media and event.get("resourceType") in BLOCKED_CDP_RESOURCE_TYPES:
+                    # Images, video and fonts behind a metered proxy.
+                    asyncio.ensure_future(session.send(
+                        "Fetch.failRequest", {"requestId": event["requestId"],
+                                              "errorReason": "BlockedByClient"}))
+                    return
                 asyncio.ensure_future(session.send(
                     "Fetch.continueRequest", {"requestId": event["requestId"]}))
 

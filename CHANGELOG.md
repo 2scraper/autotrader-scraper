@@ -9,6 +9,24 @@ said so at the top of its release notes.
 
 ## [Unreleased]
 
+> **Behaviour changes.**
+> - The browser engines (`playwright_scraper.py`, `puppeteer_scraper.py`,
+>   `selenium_scraper.py`) send ONE `HEAD` for
+>   `https://www.autotrader.com/robots.txt` through `--proxy` /
+>   `--proxy-file` before starting a local browser. A gateway `407` or `402`
+>   now ends the run there with exit 5, and writes
+>   `<out>.latest_attempt.meta.json` with `stop_reason: proxy_auth_failed`
+>   (data and `<out>.meta.json` untouched), instead of starting a browser on
+>   a refused proxy. Nothing is pre-checked with `--cdp-endpoint` or no proxy.
+> - Behind a local proxy, those engines now abort images, video/audio and
+>   web fonts. `--load-media` restores them. Nothing changes with
+>   `--cdp-endpoint` or with no proxy.
+
+### Added
+
+- `--load-media` on the browser engines; `fetch.media_blocked` in the
+  sidecar.
+
 ### Changed
 
 - CI only: the canary bills the `AUTOTRADER_PROXY` exit, so it now runs weekly

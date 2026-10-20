@@ -1901,6 +1901,282 @@ def check_no_public_file_cites_a_private_instruction_file():
           not hits, ", ".join(hits[:10]))
 
 
+# ---------------------------------------------------------------------------
+# Traffic savers: the proxy pre-check and media blocking
+# ---------------------------------------------------------------------------
+
+def _status_proxy(status):
+    """A local stand-in for a proxy gateway that answers every request,
+    CONNECT included, with `status`. Returns (server, port, hits)."""
+    import http.server
+    import socketserver
+    hits = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _answer(self):
+            hits.append((self.command, self.path))
+            self.send_response(status)
+            self.send_header("Content-Length", "0")
+            self.send_header("Proxy-Authenticate", 'Basic realm="stub"')
+            self.end_headers()
+        do_CONNECT = do_GET = do_HEAD = _answer
+
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, server.server_address[1], hits
+
+
+def _precheck_run(proxy, answers=None, **extra):
+    """run_pages with a real pool on `proxy`; returns (rc, text, opened, files, attempt)."""
+    import contextlib
+    import io
+    import page_flow
+    from proxy_pool import ProxyPool
+    pool = ProxyPool([proxy], rotate="per-run") if proxy else None
+    opened = []
+    with tempfile.TemporaryDirectory() as tmp:
+        args = types.SimpleNamespace(
+            pages=1, retries=1, retry_delay=0, delay=0, headless=False,
+            proxy_block_retries=0, out=os.path.join(tmp, "out"), format="json",
+            allow_empty=True, dump_html=None, url=None, cdp_endpoint=None,
+            concurrency=1, engine="playwright", load_media=False)
+        for k, v in extra.items():
+            setattr(args, k, v)
+        ops = _FakeOps(answers or {SEARCH: [(200, fx("srp_camry_p1"), None)]})
+
+        def open_ops():
+            opened.append(1)
+            return ops
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            rc = page_flow.run_pages(open_ops, lambda o: None,
+                                     lambda pages, cur: ([], [], False),
+                                     args, pool, _q(), 1)
+        files = sorted(os.listdir(tmp))
+        path = args.out + ".latest_attempt.meta.json"
+        attempt = json.load(open(path)) if os.path.exists(path) else {}
+    return rc, out.getvalue(), len(opened), files, attempt
+
+
+def check_a_refused_proxy_stops_the_run_before_a_browser():
+    import proxy_pool
+    for status, words in ((407, "refused the credential"), (402, "balance exhausted")):
+        server, port, hits = _status_proxy(status)
+        try:
+            rc, text, opened, files, attempt = _precheck_run(
+                "http://user:secret@127.0.0.1:%d" % port)
+        finally:
+            server.shutdown()
+            server.server_close()
+        equal("pre-check: a proxy %d exits 5" % status, rc, 5)
+        equal("pre-check: ...before a browser is opened (%d)" % status, opened, 0)
+        equal("pre-check: ...after ONE request, for robots.txt (%d)" % status,
+              hits, [("CONNECT", "www.autotrader.com:443")])
+        check("pre-check: ...says why and names AUTOTRADER_PROXY (%d)" % status,
+              words in text and "AUTOTRADER_PROXY" in text, text[-300:])
+        check("pre-check: ...and never prints the credential (%d)" % status,
+              "user:secret" not in text and "user:secret" not in json.dumps(attempt))
+        equal("pre-check: ...attempt sidecar failed/proxy_auth_failed (%d)" % status,
+              (attempt.get("status"), attempt.get("stop_reason"), attempt.get("data_updated")),
+              ("failed", "proxy_auth_failed", False))
+        equal("pre-check: ...no data or .meta.json, even with --allow-empty (%d)" % status,
+              files, ["out.latest_attempt.meta.json"])
+    server, port, hits = _status_proxy(403)
+    try:
+        rc, text, opened, files, attempt = _precheck_run("http://user:secret@127.0.0.1:%d" % port)
+    finally:
+        server.shutdown()
+        server.server_close()
+    equal("pre-check: a 403 is not a proxy verdict: the browser opens and the run is the run it was",
+          (opened, rc, "out.json" in files), (1, 0, True))
+    rc, text, opened, files, attempt = _precheck_run("http://user:secret@127.0.0.1:1")
+    equal("pre-check: an unreachable proxy keeps its existing path (browser opens)", opened, 1)
+    real = proxy_pool.precheck_proxy
+
+    def boom(*a, **k):
+        raise AssertionError("pre-check sent")
+    proxy_pool.precheck_proxy = boom
+    try:
+        rc, _, opened, _, _ = _precheck_run(None)
+        equal("pre-check: never with no proxy", (rc, opened), (0, 1))
+        rc, _, opened, _, _ = _precheck_run("http://user:secret@127.0.0.1:1",
+                                            cdp_endpoint="ws://127.0.0.1:1")
+        equal("pre-check: never over CDP (the remote browser brings its own exit)",
+              (rc, opened), (0, 1))
+    finally:
+        proxy_pool.precheck_proxy = real
+    equal("pre-check: robots.txt of the start URL",
+          proxy_pool.robots_url(SEARCH + "?page=2"), "https://www.autotrader.com/robots.txt")
+    check("pre-check: the shared loop runs it before open_ops",
+          _src("page_flow").index("_precheck_proxy(args, pool, query)")
+          < _src("page_flow").index("ops = open_ops()"))
+
+
+def check_media_blocking_policy():
+    import proxy_pool
+    ns = argparse.Namespace
+    equal("media: blocked behind a local proxy",
+          proxy_pool.should_block_media(ns(load_media=False), proxy_in_use=True), True)
+    equal("media: --load-media keeps it",
+          proxy_pool.should_block_media(ns(load_media=True), proxy_in_use=True), False)
+    equal("media: no proxy, nothing metered, nothing blocked",
+          proxy_pool.should_block_media(ns(load_media=False), proxy_in_use=False), False)
+    equal("media: never over CDP",
+          proxy_pool.should_block_media(ns(load_media=False), proxy_in_use=True,
+                                        over_cdp=True), False)
+    equal("media: the hidden test switch forces it without a proxy",
+          proxy_pool.should_block_media(ns(load_media=False, force_block_media=True),
+                                        proxy_in_use=False), True)
+
+    class Route:
+        def __init__(self, kind):
+            self.request = ns(resource_type=kind)
+            self.done = None
+
+        def abort(self, reason=None):
+            self.done = ("abort", reason)
+
+        def continue_(self):
+            self.done = ("continue",)
+    for kind, want in (("image", "abort"), ("media", "abort"), ("font", "abort"),
+                       ("document", "continue"), ("script", "continue"),
+                       ("xhr", "continue"), ("fetch", "continue"),
+                       ("stylesheet", "continue")):
+        route = Route(kind)
+        proxy_pool.playwright_media_route(route)
+        equal("media: playwright %s -> %s" % (kind, want), route.done[0], want)
+
+    class Sel:
+        def __init__(self):
+            self.sent = []
+
+        def execute_cdp_cmd(self, cmd, params):
+            self.sent.append((cmd, params))
+    sel = Sel()
+    proxy_pool.selenium_block_media(sel)
+    blocked = dict(sel.sent).get("Network.setBlockedURLs", {}).get("urls", [])
+    check("media: selenium blocks images, video and fonts by URL",
+          all(p in blocked for p in ("*.jpg", "*.webp?*", "*.mp4", "*.woff2"))
+          and not any(p.startswith("*.js") or p.startswith("*.css") for p in blocked),
+          repr(blocked))
+
+    import asyncio
+
+    class Client:
+        def __init__(self):
+            self.sent, self.handlers = [], {}
+
+        def on(self, name, fn):
+            self.handlers[name] = fn
+
+        async def send(self, cmd, params=None):
+            self.sent.append((cmd, params))
+
+    client = Client()
+
+    async def create():
+        return client
+    page = ns(target=ns(createCDPSession=create))
+    loop = asyncio.new_event_loop()
+    try:
+        async def drive():
+            await proxy_pool.pyppeteer_block_media(page)
+            client.handlers["Fetch.requestPaused"]({"requestId": "r1", "resourceType": "Image"})
+            await asyncio.sleep(0)
+        loop.run_until_complete(drive())
+    finally:
+        loop.close()
+    patterns = dict(client.sent)["Fetch.enable"]["patterns"]
+    equal("media: pyppeteer pauses only images, media and fonts",
+          sorted(p["resourceType"] for p in patterns), ["Font", "Image", "Media"])
+    equal("media: ...and fails what it paused", client.sent[-1],
+          ("Fetch.failRequest", {"requestId": "r1", "errorReason": "BlockedByClient"}))
+    # Every local-browser engine must consult the policy. A source check,
+    # because the suite runs without a browser binary.
+    for module, call in (("playwright_scraper", "playwright_media_route"),
+                         ("selenium_scraper", "selenium_block_media("),
+                         ("puppeteer_scraper", "pyppeteer_block_media(")):
+        source = _src(module)
+        check("media: %s applies the policy" % module,
+              "should_block_media(" in source and call in source.split("import", 1)[-1]
+              and source.count(call.rstrip("(")) >= 2)
+    # pyppeteer with a credentialled proxy already pauses every request for
+    # auth; the media requests are failed in THAT handler, not in a second
+    # Fetch interception.
+    src = _src("puppeteer_scraper")
+    check("media: pyppeteer's auth handler fails media requests itself",
+          "BLOCKED_CDP_RESOURCE_TYPES" in src and '"Fetch.failRequest"' in src
+          and "block_media=block_media" in src)
+    args, err = _cli(["--url", SEARCH])
+    equal("media: --load-media is off by default", (err, args and args.load_media), (None, False))
+    import cli
+    p = argparse.ArgumentParser(prog="t")
+    cli.add_search_args(p)
+    cli.add_common_args(p)
+    text = p.format_help()
+    check("media: --load-media is documented in --help, the test switch is not",
+          "--load-media" in text and "--force-block-media" not in text)
+    import page_flow
+    from proxy_pool import ProxyPool
+    pool = ProxyPool(["http://user:secret@127.0.0.1:1"], rotate="per-run")
+    a = types.SimpleNamespace(engine="playwright", headless=False, cdp_endpoint=None,
+                              load_media=False)
+    equal("media: the sidecar records media_blocked behind a proxy",
+          page_flow.fetch_summary(a, pool)["media_blocked"], True)
+    a.load_media = True
+    equal("media: ...and not with --load-media", page_flow.fetch_summary(a, pool)["media_blocked"], False)
+    a.load_media, a.cdp_endpoint = False, "ws://x:1"
+    equal("media: ...and not over CDP", page_flow.fetch_summary(a, None)["media_blocked"], False)
+
+
+def check_pyppeteer_auth_handler_blocks_media_in_place():
+    """Drive the real _authenticate_proxy against a fake CDP session."""
+    mod = _import_engine("puppeteer_scraper")
+    if mod is None:
+        return
+    import asyncio
+
+    class Client:
+        def __init__(self):
+            self.sent, self.handlers = [], {}
+
+        def on(self, name, fn):
+            self.handlers[name] = fn
+
+        async def send(self, cmd, params=None):
+            self.sent.append((cmd, params))
+
+    for block in (True, False):
+        client = Client()
+
+        async def create():
+            return client
+        loop = asyncio.new_event_loop()
+        try:
+            ops = mod._Ops.__new__(mod._Ops)
+            ops.page = types.SimpleNamespace(target=types.SimpleNamespace(createCDPSession=create))
+            ops.bridge = types.SimpleNamespace(run=lambda coro, timeout=None: loop.run_until_complete(coro))
+            ops._authenticate_proxy("u", "p", block_media=block)
+
+            async def fire():
+                client.handlers["Fetch.requestPaused"]({"requestId": "i", "resourceType": "Image"})
+                client.handlers["Fetch.requestPaused"]({"requestId": "d", "resourceType": "Document"})
+                await asyncio.sleep(0)
+            loop.run_until_complete(fire())
+        finally:
+            loop.close()
+        enables = [c for c in client.sent if c[0] == "Fetch.enable"]
+        actions = [(c[0], c[1]["requestId"]) for c in client.sent if c[0] != "Fetch.enable"]
+        equal("pyppeteer auth handler, block=%s: one Fetch.enable" % block, len(enables), 1)
+        equal("pyppeteer auth handler, block=%s: image/document" % block, actions,
+              [("Fetch.failRequest" if block else "Fetch.continueRequest", "i"),
+               ("Fetch.continueRequest", "d")])
+
+
 _TREE_BEFORE = None
 
 

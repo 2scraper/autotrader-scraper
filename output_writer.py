@@ -410,6 +410,33 @@ def write_run_meta(out_prefix: str, meta: dict) -> str:
     return path
 
 
+ATTEMPT_META_SUFFIX = ".latest_attempt.meta.json"
+
+
+def write_failed_attempt(out_prefix: str, *, stop_reason: str, mode: str,
+                         start_url: Optional[str], pages_requested: int,
+                         transport_error: str,
+                         extra: Optional[dict] = None) -> str:
+    """Record a run that ended before any page was asked for, e.g. because
+    the proxy gateway refused the pre-check, in `<out>.latest_attempt.meta.json`.
+
+    Only that file is written: `<out>.meta.json` and the data beside it stay
+    as they were, whatever `--allow-empty` says (nothing was fetched, so
+    there is no answer to write, empty or otherwise), and a "failed" sidecar
+    next to good data would contradict it.
+    """
+    meta = run_meta(status="failed", stop_reason=stop_reason,
+                    pages_requested=pages_requested, pages_completed=0,
+                    start_url=start_url or "", final_url=start_url or "",
+                    products=0, mode=mode, extra=extra)
+    meta.update(blocked=False, transport_error=transport_error, data_updated=False)
+    path = f"{out_prefix}{ATTEMPT_META_SUFFIX}"
+    with _atomic(path) as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    print(f"[+] Wrote attempt metadata -> {path} (status=failed)")
+    return path
+
+
 def run_meta(status: str, stop_reason: str, pages_requested: int,
              pages_completed: int, start_url: str, final_url: str,
              products: int, pages_failed: Optional[List[int]] = None,
