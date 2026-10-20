@@ -198,6 +198,44 @@ about a page. All three were run live on 2026-09-24 in both modes, through
 a US residential exit (Selenium through a local, credential-free forwarder
 to the same exit), and produced identical rows for the same cars.
 
+### Two traffic savers behind a proxy
+
+* **Proxy pre-check.** Before a browser engine starts a local browser behind
+  `--proxy` / `--proxy-file`, the shared page loop sends ONE `HEAD` for
+  `https://www.autotrader.com/robots.txt` through that proxy. A gateway `407`
+  (the credential was refused, or the traffic balance is exhausted) or `402`
+  (traffic/balance exhausted) ends the run there: exit `5`, a message naming
+  `AUTOTRADER_PROXY` (never its value), and
+  `<out>.latest_attempt.meta.json` with `status: failed` and
+  `stop_reason: proxy_auth_failed`. That file is written only for this case;
+  the data and `<out>.meta.json` are left as they were, even with
+  `--allow-empty`. It is neither retried nor rotated: every exit on a refused
+  credential or an exhausted balance answers the same way. Any other answer
+  (a `200`, the site's own refusal) or a transport error is not a verdict on
+  the proxy, and the run goes on as before. Nothing is pre-checked with
+  `--cdp-endpoint`, with no proxy, or by `scraper_api_client.py` (the API
+  brings its own exits).
+* **Media blocking.** While a LOCAL browser goes through `--proxy` /
+  `--proxy-file`, images, video/audio and web fonts are aborted: no parser
+  here reads them (the rows, `image_url` included, come from the page's own
+  store), and a residential proxy bills per byte. Playwright and pyppeteer
+  abort them by resource type (pyppeteer, which already pauses every request
+  to answer the proxy's auth challenge, fails them in that same handler);
+  Selenium blocks them by file extension (`Network.setBlockedURLs`), so an
+  image served without one still loads there. Playwright turns its HTTP cache
+  off while a route is installed, so scripts are fetched again after every
+  browser relaunch. Nothing is blocked with `--cdp-endpoint` or with no
+  proxy, and `--load-media` keeps everything. The sidecar records
+  `fetch.media_blocked`.
+* **Measured 2026-10-20**, with no proxy, one Camry search page through
+  Playwright (headful, under `xvfb-run`) with and without the blocking forced
+  on: both runs got the site's "page unavailable" refusal (about 4.4 KB, exit
+  3) from this datacentre address, as earlier measurements did, so a live
+  comparison of the rows was not possible. Against a local test page, every
+  engine fetched the page and its script and none of its images, video or
+  font with blocking on, and all of them without it; pyppeteer did the same
+  through a local authenticating proxy.
+
 ---
 
 ## What the 2Captcha products buy, and when
@@ -234,7 +272,7 @@ Nothing here integrates a competitor.
 | 2 | bad usage, including a search the site WIDENED (a slug it does not know) |
 | 3 | blocked: the site's "page unavailable", distinct from an empty search |
 | 4 | zero rows: the search matched nothing, or every vehicle asked for has gone |
-| 5 | the pages were never obtained: a timeout, a dead proxy, a remote API error — or a page that lists its results while its store holds no record for them (`parser_found_nothing`: the site's page has moved, and this is never reported as an empty search) |
+| 5 | the pages were never obtained: a timeout, a dead proxy (a gateway `407`/`402` is `stop_reason: proxy_auth_failed`, found before any browser starts), a remote API error — or a page that lists its results while its store holds no record for them (`parser_found_nothing`: the site's page has moved, and this is never reported as an empty search) |
 | 6 | partial: some pages came back and some did not |
 
 `--retries` counts ATTEMPTS per page, the first one included, in every

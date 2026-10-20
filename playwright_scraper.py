@@ -65,7 +65,7 @@ from captcha_solver import (INJECT_TOKEN_JS, detect_recaptcha_v3,
 from output_writer import EXIT_API_ERROR
 import page_flow
 from proxy_pool import (from_args as proxy_pool_from_args, to_playwright, mask,
-                        ProxyError)
+                        ProxyError, should_block_media, playwright_media_route)
 from cli import (add_common_args, add_search_args, display_problem,
                  finish_args)
 
@@ -128,6 +128,10 @@ def _launch_local(pw, args, pool):
         logger.info("Using 2captcha fingerprint %s (%s)", fp.get("id"), fp.get("country"))
 
     context = browser.new_context(**ctx_kwargs)
+    if should_block_media(args, proxy_in_use=bool(pool)):
+        # Images, video and fonts are aborted behind a metered proxy: no
+        # parser reads them (the rows come from the page's own store).
+        context.route("**/*", playwright_media_route)
     if init_script:
         context.add_init_script(init_script)
     return browser, context, context.new_page()

@@ -57,7 +57,7 @@ from captcha_solver import detect_recaptcha_v3, solve_recaptcha
 from output_writer import EXIT_API_ERROR
 import page_flow
 from proxy_pool import (from_args as proxy_pool_from_args, mask, ProxyError,
-                        split_credentials)
+                        split_credentials, should_block_media, selenium_block_media)
 from cli import (add_common_args, add_search_args, display_problem,
                  finish_args)
 
@@ -174,6 +174,10 @@ class _Ops:
         # the same vendor scored after one page.
         self.driver = webdriver.Chrome(options=options)
         self._apply_timeouts()
+        if should_block_media(self.args, proxy_in_use=bool(self.pool)):
+            # By URL pattern (Selenium has no request events): an image
+            # served without a file extension still loads.
+            selenium_block_media(self.driver)
         if self.args.fingerprint:
             self._apply_fingerprint()
         return self
