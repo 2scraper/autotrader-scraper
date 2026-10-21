@@ -36,7 +36,7 @@ RUN apt-get update \
 # container that nothing in the repo would have noticed.
 COPY captcha_solver.py cli.py env_config.py fingerprint_client.py \
      output_writer.py page_flow.py playwright_scraper.py product_parser.py \
-     proxy_pool.py diff_runs.py docker-entrypoint.sh ./
+     proxy_pool.py proxy_meter.py diff_runs.py docker-entrypoint.sh ./
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["--help"]

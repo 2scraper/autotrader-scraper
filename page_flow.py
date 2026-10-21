@@ -35,6 +35,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
+import proxy_meter
 from output_writer import dedupe_by_key, finish_run, SOURCE_DEFAULT
 from product_parser import (DEFAULT_PAGE_SIZE, DEFAULT_SORT, MAX_PAGES,
                             Query, check_ids, currency, detect_bot_challenge,
@@ -487,6 +488,11 @@ def fetch_one_page(ops, args, pool, query: Query, page_num: int,
         exit_failed = None
         attempt = 0
         while attempt < args.retries:
+            if proxy_meter.exceeded():
+                # --proxy-budget-mb: no further navigation through the proxy.
+                if not text:
+                    state, last_error = "load_failed", proxy_meter.STOP_REASON
+                break
             attempt += 1
             state, text, final_url, last_error = _navigate(
                 ops, url, mode, expect_id, solves)
@@ -512,6 +518,8 @@ def fetch_one_page(ops, args, pool, query: Query, page_num: int,
                 continue
             break
 
+        if proxy_meter.exceeded():
+            break  # no rotation or re-fetch on a spent budget
         if exit_failed and has_pool and block_attempt < block_retries:
             log.warning("Exit %s is unusable (%s) — rotating to another one "
                         "(%d/%d).", mask(pool.current), exit_failed,
@@ -646,7 +654,7 @@ def _media_policy(args, pool) -> bool:
 
 
 def finish(args, query: Query, outcomes: List[PageOutcome], stop_reason: str,
-           blocked: bool, pool=None) -> int:
+           blocked: bool, pool=None, unattempted: Optional[List[int]] = None) -> int:
     """Merge the pages in PAGE order, write the output, return the exit code.
 
     One implementation for the three engines, so the merge order, the
@@ -675,6 +683,9 @@ def finish(args, query: Query, outcomes: List[PageOutcome], stop_reason: str,
     extra = {"query": query_summary(query), "fetch": fetch_summary(args, pool),
              "field_coverage": coverage, "fields_below_floor": below,
              "results_without_record": sum(o.results_without_record for o in outcomes)}
+    if unattempted:
+        # Pages planned but never asked for (the run stopped first): not failed pages.
+        extra["pages_unattempted"] = sorted(unattempted)
     if query.mode == "listing":
         first = next((o for o in outcomes if o.page_num == 1), None)
         total = getattr(first, "total_available", None)
@@ -761,7 +772,10 @@ def run_pages(open_ops, close_ops, run_concurrently, args, pool,
     Playwright, its thread) is the one thing that cannot be shared.
     """
     outcomes: List[PageOutcome] = []
+    unattempted: List[int] = []
+    rest: List[int] = []
     blocked, stop_reason = False, "completed"
+    start_proxy_meter(args, pool)
     if pool is not None and not getattr(args, "cdp_endpoint", None):
         refused = _precheck_proxy(args, pool, query)
         if refused is not None:
@@ -806,6 +820,7 @@ def run_pages(open_ops, close_ops, run_concurrently, args, pool,
                 log.info("Fetching pages 2-%d across %d workers%s.", plan,
                          concurrency, f" over {len(pool)} exit(s)" if pool else "")
                 more, unattempted, exhausted = run_concurrently(rest, first.currency)
+                unattempted = list(unattempted)
                 outcomes.extend(more)
                 failed = [o for o in more if not o.ok]
                 if failed:
@@ -816,7 +831,10 @@ def run_pages(open_ops, close_ops, run_concurrently, args, pool,
                 elif unattempted:
                     stop_reason = "pages_unattempted"
             else:
-                for page_num in rest:
+                for index, page_num in enumerate(rest):
+                    if proxy_meter.exceeded():
+                        unattempted = rest[index:]
+                        break
                     ops.wait_ms(int(args.delay * 1000))
                     if pool and pool.rotates_per_page():
                         pool.advance(f"per-page rotation, page {page_num}")
@@ -836,7 +854,10 @@ def run_pages(open_ops, close_ops, run_concurrently, args, pool,
     finally:
         if ops is not None:
             close_ops(ops)
-    return finish(args, query, outcomes, stop_reason, blocked, pool)
+    if proxy_meter.exceeded():
+        attempted = {o.page_num for o in outcomes}
+        unattempted = sorted(set(unattempted) | {n for n in rest if n not in attempted})
+    return finish(args, query, outcomes, stop_reason, blocked, pool, unattempted)
 
 
 def worker_loop(ops, args, query: Query, work, results, results_lock,
@@ -848,7 +869,9 @@ def worker_loop(ops, args, query: Query, work, results, results_lock,
     sets `exhausted` so the other workers stop taking work too.
     """
     first = True
-    while not exhausted.is_set():
+    # A spent --proxy-budget-mb stops every worker from taking a new page;
+    # the pages left in `work` are reported as unattempted.
+    while not exhausted.is_set() and not proxy_meter.exceeded():
         try:
             page_num = work.get_nowait()
         except Exception:  # queue.Empty
@@ -864,6 +887,14 @@ def worker_loop(ops, args, query: Query, work, results, results_lock,
             log.info("[%s] page %d ended the search; stopping dispatch.",
                      name, page_num)
             exhausted.set()
+
+
+def start_proxy_meter(args, pool) -> "proxy_meter.ProxyMeter":
+    """Meter this run's traffic when it goes through a LOCAL proxy (not over
+    --cdp-endpoint, not without a proxy)."""
+    active = bool(pool) and not getattr(args, "cdp_endpoint", None)
+    return proxy_meter.start(getattr(args, "proxy_budget_mb", proxy_meter.DEFAULT_BUDGET_MB),
+                             active=active)
 
 
 def concurrency_for(args, pool) -> int:

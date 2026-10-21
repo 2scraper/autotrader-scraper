@@ -54,6 +54,7 @@ from pyppeteer.errors import BrowserError
 from captcha_solver import INJECT_TOKEN_JS, detect_recaptcha_v3, solve_recaptcha
 from output_writer import EXIT_API_ERROR
 import page_flow
+import proxy_meter
 from proxy_pool import (from_args as proxy_pool_from_args, mask, ProxyError,
                         split_credentials, should_block_media, pyppeteer_block_media,
                         BLOCKED_CDP_RESOURCE_TYPES)
@@ -255,6 +256,9 @@ class _Ops:
             self._authenticate_proxy(*credentials, block_media=block_media)
         elif block_media:
             self.bridge.run(pyppeteer_block_media(self.page), timeout=30)
+        if self.pool:
+            # --proxy-budget-mb: count this page's traffic over its own CDP session.
+            self.bridge.run(proxy_meter.current().attach_pyppeteer(self.page), timeout=30)
         return self
 
     def _authenticate_proxy(self, username: str, password: str,

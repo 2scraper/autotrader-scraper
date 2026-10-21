@@ -72,8 +72,14 @@ jobs:
           set +e   # `run:` is `bash -e`; without this a non-zero exit aborts
                    # the step before the echo below records it.
           xvfb-run -a python playwright_scraper.py --url "$CANARY_URL" --pages 3 \
-            --out canary --format both --dump-html canary_dump.html 2>&1 | tee canary.log
+            --out canary --format both --dump-html canary_dump.html --proxy-budget-mb 10 2>&1 | tee canary.log
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      # What the run sent through AUTOTRADER_PROXY, read from its sidecar;
+      # red when it stopped at the 10 MB budget (stop_reason proxy_budget_exceeded).
+      - name: Proxy traffic (listing)
+        if: always() && env.AUTOTRADER_PROXY != ''
+        run: python3 .github/proxy_traffic_summary.py canary "run listing" 10
 
       - name: Interpret the listing run
         if: env.AUTOTRADER_PROXY != ''
@@ -152,7 +158,7 @@ jobs:
         if: env.AUTOTRADER_PROXY != ''
         run: |
           xvfb-run -a python playwright_scraper.py --from-listing canary_ids.json \
-            --out canary_vehicle --format json
+            --out canary_vehicle --format json --proxy-budget-mb 10
           python - <<'EOF'
           import json, sys
           rows = json.load(open("canary_vehicle.json"))
@@ -166,6 +172,10 @@ jobs:
                        % meta["fields_below_floor"])
           print("vehicle canary OK: %d rows, %d gone" % (len(rows), len(meta["vehicles_gone"])))
           EOF
+
+      - name: Proxy traffic (vehicle)
+        if: always() && env.AUTOTRADER_PROXY != ''
+        run: python3 .github/proxy_traffic_summary.py canary_vehicle "run vehicle" 10
 
       - uses: actions/upload-artifact@v4
         if: always() && env.AUTOTRADER_PROXY != ''

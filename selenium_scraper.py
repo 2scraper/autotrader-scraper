@@ -56,6 +56,7 @@ from selenium.webdriver.chrome.options import Options
 from captcha_solver import detect_recaptcha_v3, solve_recaptcha
 from output_writer import EXIT_API_ERROR
 import page_flow
+import proxy_meter
 from proxy_pool import (from_args as proxy_pool_from_args, mask, ProxyError,
                         split_credentials, should_block_media, selenium_block_media)
 from cli import (add_common_args, add_search_args, display_problem,
@@ -169,10 +170,16 @@ class _Ops:
                     "this site, which wants a US residential exit, that is "
                     "usually the only kind available.")
 
+        metered = bool(self.pool) and proxy_meter.current().active
+        if metered:
+            # --proxy-budget-mb counts from Chrome's performance log.
+            proxy_meter.selenium_logging_prefs(options)
         # No User-Agent override. The browser's own agrees with its TLS and
         # client hints; a bare CDP override is what a sibling site behind
         # the same vendor scored after one page.
         self.driver = webdriver.Chrome(options=options)
+        if metered:
+            proxy_meter.current().attach_selenium(self.driver, keep_entries=False)
         self._apply_timeouts()
         if should_block_media(self.args, proxy_in_use=bool(self.pool)):
             # By URL pattern (Selenium has no request events): an image
@@ -213,7 +220,9 @@ class _Ops:
         try:
             self.driver.get(url)
         except WebDriverException as e:
+            proxy_meter.current().poll_selenium(self.driver)
             raise page_flow.TransportError(_mask_credentials(str(e))) from None
+        proxy_meter.current().poll_selenium(self.driver)  # --proxy-budget-mb
         try:
             final = self.driver.current_url
         except WebDriverException:
@@ -222,6 +231,7 @@ class _Ops:
         return None, final
 
     def document_text(self) -> str:
+        proxy_meter.current().poll_selenium(self.driver)
         try:
             return self.driver.page_source or ""
         except WebDriverException:
@@ -245,6 +255,7 @@ class _Ops:
     def close(self):
         try:
             if self.driver is not None:
+                proxy_meter.current().poll_selenium(self.driver)  # what the last page still loaded
                 # quit(), not close(): close() leaves the driver process
                 # running, which a per-page rotation would leak once a page.
                 self.driver.quit()
