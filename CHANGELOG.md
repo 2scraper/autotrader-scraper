@@ -49,6 +49,7 @@ said so at the top of its release notes.
 
 ### Changed
 
+- CI only: when the listing run's proxy-traffic step fails (budget exceeded), the canary's "Interpret the listing run" step still runs and reports that run's own verdict; before, GitHub skipped it and the log showed only the budget error. The job's result is unchanged: it is red either way.
 - CI only: both canary runs pass `--proxy-budget-mb 15` instead of 10 (measured 2026-10-21: the listing run used 9.4 MB, the vehicle run 8.3 MB, each near the 10 MB cap), and `.github/proxy_traffic_summary.py` reports the budget from each run's sidecar (`proxy_budget_bytes`, 10 MB fallback) instead of a fixed figure. The scraper's default budget stays 10 MB.
 - CI only: the canary bills the `AUTOTRADER_PROXY` exit, so it now runs weekly
   (Mondays 06:20 UTC) instead of daily; a manual dispatch still runs it.

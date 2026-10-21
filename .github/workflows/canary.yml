@@ -85,7 +85,10 @@ jobs:
         run: python3 .github/proxy_traffic_summary.py canary "run listing"
 
       - name: Interpret the listing run
-        if: env.AUTOTRADER_PROXY != ''
+        # Runs even when "Proxy traffic (listing)" above failed (budget
+        # exceeded): that step already fails the job, and this one still
+        # reports the run's own verdict instead of being skipped.
+        if: ${{ !cancelled() && env.AUTOTRADER_PROXY != '' && steps.listing.outcome != 'skipped' }}
         run: |
           code="${{ steps.listing.outputs.exit_code }}"
           echo "exit code: $code"
