@@ -198,7 +198,7 @@ about a page. All three were run live on 2026-09-24 in both modes, through
 a US residential exit (Selenium through a local, credential-free forwarder
 to the same exit), and produced identical rows for the same cars.
 
-### Two traffic savers behind a proxy
+### Traffic savers and a budget behind a proxy
 
 * **Proxy pre-check.** Before a browser engine starts a local browser behind
   `--proxy` / `--proxy-file`, the shared page loop sends ONE `HEAD` for
@@ -207,9 +207,8 @@ to the same exit), and produced identical rows for the same cars.
   (traffic/balance exhausted) ends the run there: exit `5`, a message naming
   `AUTOTRADER_PROXY` (never its value), and
   `<out>.latest_attempt.meta.json` with `status: failed` and
-  `stop_reason: proxy_auth_failed`. That file is written only for this case;
-  the data and `<out>.meta.json` are left as they were, even with
-  `--allow-empty`. It is neither retried nor rotated: every exit on a refused
+  `stop_reason: proxy_auth_failed`. The data and `<out>.meta.json` are left
+  as they were, even with `--allow-empty`. It is neither retried nor rotated: every exit on a refused
   credential or an exhausted balance answers the same way. Any other answer
   (a `200`, the site's own refusal) or a transport error is not a verdict on
   the proxy, and the run goes on as before. Nothing is pre-checked with
@@ -227,6 +226,30 @@ to the same exit), and produced identical rows for the same cars.
   browser relaunch. Nothing is blocked with `--cdp-endpoint` or with no
   proxy, and `--load-media` keeps everything. The sidecar records
   `fetch.media_blocked`.
+* **Traffic budget.** Every byte a local browser sends or receives through
+  `--proxy` / `--proxy-file` is counted, and `--proxy-budget-mb` (default
+  `10`; `0` = unlimited) caps the run. Once the running total passes it, no
+  new page, retry or re-fetch is started (with `--concurrency`, no worker
+  takes another page; pages already loading finish), the browser aborts
+  any request it still tries, the rows already read are kept, and the run
+  ends with `stop_reason: proxy_budget_exceeded`: exit `6` with rows, `5`
+  without, a block on the last page included. It never goes on silently.
+  A proxied run prints one line at the end, e.g. `Proxy traffic: 3.2 MB of
+  10 MB budget`, and the sidecar records `proxy_bytes`, `proxy_budget_bytes`
+  and `proxy_budget_exceeded` (`null` / `null` / `false` with no local
+  proxy), plus `pages_unattempted`. A proxied run that writes no rows
+  records them in `<out>.latest_attempt.meta.json`, leaving the data and
+  `<out>.meta.json` as they were. The count is an estimate of the tunnelled
+  payload: request line, headers and body sent, response headers and body as
+  received. TLS records, the `CONNECT` exchange, WebSocket frames and
+  Chrome's own background requests are not visible to it, so the proxy's
+  bill is a few per cent higher. 1 MB = 1,000,000 bytes. Playwright sums
+  `request.sizes()` of every finished or failed request; pyppeteer and
+  Selenium (from Chrome's performance log) read CDP
+  `Network.loadingFinished.encodedDataLength` of every response that came
+  over the network, plus each request's line, headers and body; the
+  pre-check's `HEAD` is counted too. Nothing is counted or capped with
+  `--cdp-endpoint`, with no proxy, or by `scraper_api_client.py`.
 * **Measured 2026-10-20**, with no proxy, one Camry search page through
   Playwright (headful, under `xvfb-run`) with and without the blocking forced
   on: both runs got the site's "page unavailable" refusal (about 4.4 KB, exit
@@ -272,8 +295,8 @@ Nothing here integrates a competitor.
 | 2 | bad usage, including a search the site WIDENED (a slug it does not know) |
 | 3 | blocked: the site's "page unavailable", distinct from an empty search |
 | 4 | zero rows: the search matched nothing, or every vehicle asked for has gone |
-| 5 | the pages were never obtained: a timeout, a dead proxy (a gateway `407`/`402` is `stop_reason: proxy_auth_failed`, found before any browser starts), a remote API error — or a page that lists its results while its store holds no record for them (`parser_found_nothing`: the site's page has moved, and this is never reported as an empty search) |
-| 6 | partial: some pages came back and some did not |
+| 5 | the pages were never obtained: a timeout, a dead proxy (a gateway `407`/`402` is `stop_reason: proxy_auth_failed`, found before any browser starts), the proxy budget spent before any row (`proxy_budget_exceeded`), a remote API error — or a page that lists its results while its store holds no record for them (`parser_found_nothing`: the site's page has moved, and this is never reported as an empty search) |
+| 6 | partial: some pages came back and some did not, or `--proxy-budget-mb` ran out after some rows (`proxy_budget_exceeded`) |
 
 `--retries` counts ATTEMPTS per page, the first one included, in every
 engine (so `1` is one try with no retry); `0` is refused.

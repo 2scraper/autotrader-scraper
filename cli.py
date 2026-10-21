@@ -16,6 +16,7 @@ from typing import Optional
 
 import env_config
 import page_flow
+import proxy_meter
 from product_parser import LISTING_TYPES, PAGE_SIZES, RADII, SORTS
 from proxy_pool import ROTATE_MODES
 
@@ -137,6 +138,7 @@ def add_common_args(p, out_default="autotrader_rows"):
                         "--proxy-file (no parser reads them, and the proxy bills "
                         "per byte); never blocked with --cdp-endpoint or no proxy.")
     p.add_argument("--force-block-media", action="store_true", help=argparse.SUPPRESS)
+    proxy_meter.add_budget_argument(p)
     p.add_argument("--proxy-block-retries", type=int, default=2,
                    help="When a page is refused, retry it from this many OTHER "
                         "exits (default 2). Needs a pool of more than one.")
