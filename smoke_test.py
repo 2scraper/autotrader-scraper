@@ -2477,11 +2477,14 @@ def check_canary_reports_proxy_traffic_and_fails_on_the_budget():
     text = open(wf_path, encoding="utf-8").read()
     runs = [line for line in text.replace("\\\n", " ").splitlines()
             if "_scraper.py" in line and "--out" in line]
-    check("canary: every scraper run passes --proxy-budget-mb 10",
-          runs and all("--proxy-budget-mb 10" in line for line in runs), repr(runs))
+    # 15 MB, above the scraper's 10 MB default: measured 2026-10-21, the listing
+    # run used 9.4 MB and the vehicle run 8.3 MB, each near a 10 MB cap.
+    check("canary: every scraper run passes --proxy-budget-mb 15",
+          runs and all(re.search(r"--proxy-budget-mb 15(?!\d)", line) for line in runs), repr(runs))
     for out, label in (("canary", "run listing"), ("canary_vehicle", "run vehicle")):
-        call = "python3 .github/proxy_traffic_summary.py %s \"%s\" 10" % (out, label)
-        check("canary: a summary step reads %s's sidecar" % out, call in text)
+        call = "python3 .github/proxy_traffic_summary.py %s \"%s\"" % (out, label)
+        check("canary: a summary step reads %s's sidecar, with no fixed budget" % out,
+              re.search(r"^\s*run: %s\s*$" % re.escape(call), text, re.M))
         if call in text:
             step = text[:text.index(call)].rsplit("- name:", 1)[-1]
             check("canary: ...and runs whatever the run did (%s)" % out, "if: always()" in step, step)
@@ -2499,15 +2502,31 @@ def check_canary_reports_proxy_traffic_and_fails_on_the_budget():
                 if data is not None:
                     with open(path, "w") as f:
                         json.dump(data, f)
-            proc = subprocess.run([sys.executable, script, "canary", "run listing", "10"], cwd=tmp, env=env,
+            proc = subprocess.run([sys.executable, script, "canary", "run listing"], cwd=tmp, env=env,
                                   capture_output=True, text=True, timeout=60)
             last = open(summary).read().splitlines()[-1] if os.path.exists(summary) else ""
             return proc, last
-        proc, last = summarise({"proxy_bytes": 4321000, "proxy_budget_exceeded": False, "finished_at": "2"})
-        equal("canary: the summary line", (proc.returncode, last), (0, "**run listing**: proxy traffic 4.3 MB of 10 MB"))
-        proc, last = summarise(None, {"proxy_bytes": 10200000, "proxy_budget_exceeded": True, "finished_at": "3"})
+        proc, last = summarise({"proxy_bytes": 4321000, "proxy_budget_bytes": 15 * 10 ** 6,
+                                "proxy_budget_exceeded": False, "finished_at": "2"})
+        equal("canary: the summary line", (proc.returncode, last), (0, "**run listing**: proxy traffic 4.3 MB of 15 MB"))
+        proc, last = summarise(None, {"proxy_bytes": 15200000, "proxy_budget_bytes": 15 * 10 ** 6,
+                                      "proxy_budget_exceeded": True, "finished_at": "3"})
         check("canary: a run stopped at the budget is red with the ::error:: line",
-              proc.returncode == 1 and "::error::stopped: proxy budget 10 MB exceeded" in proc.stdout, proc.stdout)
+              proc.returncode == 1 and "::error::stopped: proxy budget 15 MB exceeded" in proc.stdout
+              and last == "**run listing**: proxy traffic 15.2 MB of 15 MB", repr((proc.stdout, last)))
+        # The budget is the run's own, not a fixed figure: a 10 MB run reads "of 10 MB",
+        # a sidecar with no proxy_budget_bytes falls back to 10 MB, and null (no cap) reads "of no".
+        proc, last = summarise({"proxy_bytes": 10200000, "proxy_budget_bytes": 10 ** 7,
+                                "proxy_budget_exceeded": True, "finished_at": "2"})
+        check("canary: the budget text comes from the sidecar's proxy_budget_bytes (10 MB run)",
+              proc.returncode == 1 and "::error::stopped: proxy budget 10 MB exceeded" in proc.stdout
+              and last == "**run listing**: proxy traffic 10.2 MB of 10 MB", repr((proc.stdout, last)))
+        proc, last = summarise({"proxy_bytes": 2000000, "proxy_budget_exceeded": False, "finished_at": "2"})
+        equal("canary: a sidecar without proxy_budget_bytes falls back to 10 MB", last,
+              "**run listing**: proxy traffic 2.0 MB of 10 MB")
+        proc, last = summarise({"proxy_bytes": 2000000, "proxy_budget_bytes": None,
+                                "proxy_budget_exceeded": False, "finished_at": "2"})
+        equal("canary: a null proxy_budget_bytes reads as no cap", last, "**run listing**: proxy traffic 2.0 MB of no")
         proc, last = summarise()
         check("canary: a missing sidecar is reported, not a crash", proc.returncode == 0 and "not recorded" in last, last)
         proc, last = summarise({"proxy_bytes": None, "proxy_budget_exceeded": False})

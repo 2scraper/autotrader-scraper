@@ -346,6 +346,14 @@ a refusal. Measured from its own history: 11 of 12 runs green between
 timeouts at the exit, exit 5. Without the secret it FAILS, naming it: a
 canary that cannot reach the site must not report green.
 
+Both canary runs pass `--proxy-budget-mb 15`, above the scraper's own
+10 MB default, which is unchanged. Measured 2026-10-21 through
+`AUTOTRADER_PROXY`: the 3-page listing run used 9.4 MB and the 3-vehicle
+run 8.3 MB, each near the 10 MB cap, so a slightly heavier page would have
+stopped a healthy canary. The job summary shows each run's traffic against
+the budget recorded in its sidecar (`proxy_budget_bytes`), and a run that
+hits 15 MB still fails the job.
+
 ---
 
 ## Legal
