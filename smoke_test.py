@@ -2489,6 +2489,18 @@ def check_canary_reports_proxy_traffic_and_fails_on_the_budget():
             step = text[:text.index(call)].rsplit("- name:", 1)[-1]
             check("canary: ...and runs whatever the run did (%s)" % out, "if: always()" in step, step)
             check("canary: ...after that run", text.index("--out %s " % out) < text.index(call))
+    # A step that judges a run's exit code comes after that run's proxy-traffic
+    # step, which fails when the budget was exceeded. Without !cancelled() /
+    # always() GitHub skips it then, and the run's own verdict is never shown.
+    steps = re.split(r"\n\s*- (?:name|uses):", text)
+    judges = [s for s in steps if ".outputs.exit_code" in s and "--out" not in s]
+    unguarded = [s.strip().splitlines()[0] for s in judges
+                 if not re.search(r"^\s*if:.*(!cancelled\(\)|always\(\))", s, re.M)]
+    check("canary: every exit-code verdict step runs after a failed proxy-traffic step "
+          "(unguarded: %s)" % (unguarded or "none"), judges and not unguarded, repr(unguarded))
+    check("canary: ...and 'Interpret the listing run' is one of them",
+          any(s.strip().startswith("Interpret the listing run") for s in judges)
+          and "Interpret the listing run" not in unguarded)
     script = os.path.join(HERE, ".github", "proxy_traffic_summary.py")
     with tempfile.TemporaryDirectory() as tmp:
         summary = os.path.join(tmp, "summary.md")
