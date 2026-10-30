@@ -1,4 +1,4 @@
-# autotrader-scraper
+# Autotrader Scraper — US Car Listings, Prices and VINs in Python
 
 [![release](https://img.shields.io/github/v/release/2scraper/autotrader-scraper)](https://github.com/2scraper/autotrader-scraper/releases)
 [![tests](https://github.com/2scraper/autotrader-scraper/actions/workflows/tests.yml/badge.svg)](https://github.com/2scraper/autotrader-scraper/actions/workflows/tests.yml)
@@ -7,6 +7,8 @@
 [![licence](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
 ![engines](https://img.shields.io/badge/engines-playwright%20%7C%20selenium%20%7C%20pyppeteer-lightgrey)
 ![needs](https://img.shields.io/badge/needs-a%20US%20residential%20exit%20%2B%20a%20headful%20browser-orange)
+
+**Autotrader scraper** — an open-source (MIT) Python tool that reads autotrader.com (United States) search results and vehicle detail pages and writes price with fees, KBB fair price, deal rating, VIN, mileage and dealer details to JSON or CSV. Measured on 2026-09-24, the site served results only to a headful browser on a US residential exit; every other client and exit tested that day got a "page unavailable" page. Use it to build a car-listing dataset or monitor asking prices, and compare two runs with `diff_runs.py`.
 
 Scrapes [autotrader.com](https://www.autotrader.com) (United States) into
 JSON and CSV:
@@ -370,3 +372,20 @@ jurisdiction are your responsibility as the operator. `--delay` defaults to
 2 seconds between pages.
 
 MIT licensed. Not affiliated with or endorsed by Autotrader.
+
+## Guides
+
+- [How to run the 2scraper scrapers: setup, proxies, exit codes and access modes](https://2captcha.com/h/how-to-run-2scraper-open-source-scrapers) — installation, `.env`, `.meta.json` for the whole family.
+
+## Related scrapers
+
+Same CLI conventions, same output contract (one row per item, JSON or CSV, a `.meta.json` sidecar and shared exit codes):
+
+- [Avito scraper](https://github.com/2scraper/avito-scraper) — Category and search listings, item pages and seller profiles…
+- [Craigslist scraper](https://github.com/2scraper/craigslist-scraper) — Result lists and adverts from all 714 areas
+- [dubizzle scraper](https://github.com/2scraper/dubizzle-scraper) — UAE classifieds — motors, property, electronics, jobs…
+- [Facebook Marketplace scraper](https://github.com/2scraper/facebook-marketplace-scraper) — Marketplace listings by keyword, category, location…
+- [MakeMyTrip scraper](https://github.com/2scraper/makemytrip-scraper) — Hotel prices with taxes and fees, ratings, stars…
+- [Skyscanner scraper](https://github.com/2scraper/skyscanner-scraper) — Route and dates in — every itinerary with price, airline…
+
+All scrapers: [github.com/2scraper](https://github.com/2scraper) · Need another site? [Open a request](https://github.com/2scraper/.github/issues/new?title=%5BScraper%20request%5D%20)
